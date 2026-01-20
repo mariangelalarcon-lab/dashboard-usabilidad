@@ -3,7 +3,7 @@ import pandas as pd
 import plotly.graph_objects as go
 import os
 
-# 1. Configuración de la página y Estilo Celeste Holos
+# 1. Configuración y Estilo
 st.set_page_config(page_title="Dashboard Holos", layout="wide")
 st.markdown("<style>.stApp {background-color: #E3F2FD;}</style>", unsafe_allow_html=True)
 
@@ -27,7 +27,7 @@ def load_data():
     c_met = encontrar_columna(df, ['Meta en %', 'Meta %'])
     c_mes = encontrar_columna(df, ['Inicio del Mes', 'Mes'])
     c_ani = encontrar_columna(df, ['Inicio de Año', 'Año'])
-    c_sem = encontrar_columna(df, ['Semana'])
+    c_sem = encontrar_columna(df, ['Semana', 'Week', 'Desglose']) 
 
     def limpiar_pct(valor):
         if pd.isna(valor): return 0.0
@@ -42,46 +42,66 @@ def load_data():
     df['Anio_Limpio'] = pd.to_numeric(df[c_ani], errors='coerce').fillna(0).astype(int)
     df['Mes_Limpio'] = pd.to_numeric(df[c_mes], errors='coerce').fillna(0).astype(int)
     df['Empresa_Limpia'] = df[c_emp].astype(str).str.strip()
-
+    
+    # Normalizamos la columna de semanas
     if c_sem:
-        df = df[df[c_sem].astype(str).str.contains('total', case=False, na=False)].copy()
+        df['Semana_Filtro'] = df[c_sem].astype(str).str.strip()
+    else:
+        # Si no existe la columna en años viejos, asumimos que es el dato total
+        df['Semana_Filtro'] = "Mes total"
+
     return df
 
 try:
     df = load_data()
     if df.empty:
-        st.warning("No se encontraron datos. Verifica que el archivo CSV esté en GitHub.")
+        st.warning("Sube tu archivo CSV a GitHub.")
         st.stop()
 
     # --- ENCABEZADO ---
     col_logo, col_tit, col_g1, col_g2, col_g3 = st.columns([1, 1.5, 1, 1, 1])
-    
     with col_logo:
-        # Logo Holos
         st.image("https://www.holos.club/_next/static/media/logo-black.68e7f8e7.svg", width=120)
-    
     with col_tit:
         st.title("Reporte Holos")
 
-    # Filtros
+    # --- FILTROS SIDEBAR ---
     with st.sidebar:
         st.header("Configuración")
         lista_emp = ["Todas las Empresas"] + sorted(df['Empresa_Limpia'].unique().tolist())
         emp_sel = st.selectbox("Empresa", lista_emp)
+        
         anios_disp = sorted(df['Anio_Limpio'].unique())
         anios_sel = st.multiselect("Años", anios_disp, default=anios_disp)
         
         meses_map = {1:'Ene', 2:'Feb', 3:'Mar', 4:'Abr', 5:'May', 6:'Jun', 7:'Jul', 8:'Ago', 9:'Set', 10:'Oct', 11:'Nov', 12:'Dic'}
         meses_sel = st.multiselect("Meses", sorted(meses_map.keys()), default=sorted(meses_map.keys()), format_func=lambda x: meses_map[x])
 
-    mask = (df['Anio_Limpio'].isin(anios_sel)) & (df['Mes_Limpio'].isin(meses_sel))
-    df_f = df[mask].copy()
+        # FILTRO DE SEMANAS (Aparece si hay datos de semanas disponibles)
+        semana_sel = "Mes total"
+        opciones_sem = sorted(df['Semana_Filtro'].unique().tolist())
+        if len(opciones_sem) > 1:
+            st.markdown("---")
+            st.subheader("Desglose de Tiempo")
+            # Ponemos 'Mes total' como el valor por defecto si existe
+            idx_default = opciones_sem.index("Mes total") if "Mes total" in opciones_sem else 0
+            semana_sel = st.selectbox("Ver detalle por:", opciones_sem, index=idx_default)
 
-    # Función de Círculos ajustada para evitar SyntaxError e ID duplicados
+    # --- PROCESAMIENTO DE DATOS ---
+    # 1. Filtro base por año/mes
+    mask = (df['Anio_Limpio'].isin(anios_sel)) & (df['Mes_Limpio'].isin(meses_sel))
+    df_base = df[mask].copy()
+    
+    # 2. Aplicamos el filtro de semana (Si el año es 2026 o tiene semanas, filtramos. Si no, dejamos pasar)
+    # Esto permite que 2024/2025 sigan funcionando aunque no tengan columna de semana
+    df_f = df_base[ (df_base['Semana_Filtro'] == semana_sel) | (~df_base['Semana_Filtro'].isin(opciones_sem)) ]
+
+    # --- INDICADORES CIRCULARES (Siempre sobre el 'Mes total') ---
     def crear_gauge(anio, color):
-        val = df_f[df_f['Anio_Limpio'] == anio]['Usabilidad_Limpia'].mean()
-        if pd.isna(val) or val == 0: 
-            return None
+        # Para el promedio anual usamos solo 'Mes total' para que el dato sea verídico
+        data_gauge = df[ (df['Anio_Limpio'] == anio) & (df['Semana_Filtro'] == "Mes total") ]
+        val = data_gauge['Usabilidad_Limpia'].mean()
+        if pd.isna(val) or val == 0: return None
         fig = go.Figure(go.Indicator(
             mode="gauge+number", value=val*100,
             number={'suffix': "%", 'font': {'size': 18}},
@@ -92,26 +112,17 @@ try:
         return fig
 
     if emp_sel == "Todas las Empresas":
-        # Gráficos con estructura 'if' tradicional para evitar errores
         g24 = crear_gauge(2024, "#1f77b4")
-        if g24 is not None:
-            with col_g1:
-                st.plotly_chart(g24, use_container_width=True, key="c2024")
-        
+        if g24: with col_g1: st.plotly_chart(g24, use_container_width=True, key="c24")
         g25 = crear_gauge(2025, "#FF4B4B")
-        if g25 is not None:
-            with col_g2:
-                st.plotly_chart(g25, use_container_width=True, key="c2025")
-        
+        if g25: with col_g2: st.plotly_chart(g25, use_container_width=True, key="c25")
         g26 = crear_gauge(2026, "#00CC96")
-        if g26 is not None:
-            with col_g3:
-                st.plotly_chart(g26, use_container_width=True, key="c2026")
+        if g26: with col_g3: st.plotly_chart(g26, use_container_width=True, key="c26")
         
         df_plot = df_f.groupby(['Anio_Limpio', 'Mes_Limpio']).agg({'Usabilidad_Limpia': 'mean', 'Meta_Limpia': 'mean'}).reset_index()
     else:
-        df_f = df_f[df_f['Empresa_Limpia'] == emp_sel]
-        df_plot = df_f.sort_values(['Anio_Limpio', 'Mes_Limpio'])
+        df_ind = df_f[df_f['Empresa_Limpia'] == emp_sel]
+        df_plot = df_ind.sort_values(['Anio_Limpio', 'Mes_Limpio'])
 
     # --- GRÁFICO PRINCIPAL ---
     if not df_plot.empty:
@@ -121,36 +132,28 @@ try:
             d_anio = df_plot[df_plot['Anio_Limpio'] == a]
             if not d_anio.empty:
                 mx = [meses_map.get(m) for m in d_anio['Mes_Limpio']]
+                # Etiqueta dinámica para saber qué estamos viendo
+                label_vista = f" ({semana_sel})" if semana_sel != "Mes total" else ""
+                
                 fig_main.add_trace(go.Bar(
                     x=mx, y=d_anio['Usabilidad_Limpia'], 
-                    name=f"Real {a}", 
+                    name=f"Real {a}{label_vista}", 
                     marker_color=colores_map.get(a, "gray"), 
                     text=[f"{v:.1%}" for v in d_anio['Usabilidad_Limpia']], 
                     textposition='outside'
                 ))
-                fig_main.add_trace(go.Scatter(
-                    x=mx, y=d_anio['Meta_Limpia'], 
-                    name=f"Meta {a}", 
-                    line=dict(dash='dash', color='gray')
-                ))
+                fig_main.add_trace(go.Scatter(x=mx, y=d_anio['Meta_Limpia'], name=f"Meta {a}", line=dict(dash='dash', color='gray')))
         
-        fig_main.update_layout(paper_bgcolor='rgba(0,0,0,0)', plot_bgcolor='white', barmode='group', yaxis=dict(tickformat=".0%"))
-        st.plotly_chart(fig_main, use_container_width=True, key="grafico_final")
-
-        # --- ANÁLISIS ---
-        st.markdown("---")
-        st.subheader("📝 Análisis de Desempeño")
-        ins = ""
-        for a in anios_sel:
-            d_a = df_f[df_f['Anio_Limpio'] == a]
-            if not d_a.empty:
-                s1 = d_a[d_a['Mes_Limpio'] <= 6]['Usabilidad_Limpia'].mean()
-                s2 = d_a[d_a['Mes_Limpio'] > 6]['Usabilidad_Limpia'].mean()
-                txt_sem = "1er Semestre" if s1 > s2 else "2do Semestre"
-                ins += f"* **En {a}:** Mayor performance en el **{txt_sem}** ({max(s1,s2):.1%}). "
-        st.info(ins if ins else "No hay datos para el análisis.")
+        fig_main.update_layout(
+            paper_bgcolor='rgba(0,0,0,0)', 
+            plot_bgcolor='white', 
+            barmode='group', 
+            yaxis=dict(tickformat=".0%", range=[0, 1.1]),
+            legend=dict(orientation="h", yanchor="bottom", y=1.02, xanchor="right", x=1)
+        )
+        st.plotly_chart(fig_main, use_container_width=True, key="main_chart_weeks")
     else:
-        st.warning("Selecciona al menos un Año y Mes para visualizar el gráfico.")
+        st.info("Selecciona parámetros para mostrar el gráfico.")
 
 except Exception as e:
-    st.error(f"Error: {e}")
+    st.error(f"Error en el procesamiento: {e}")
