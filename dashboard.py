@@ -50,14 +50,14 @@ def load_data():
 try:
     df = load_data()
     if df.empty:
-        st.warning("Sube tu archivo CSV a GitHub para visualizar los datos.")
+        st.warning("No se encontraron datos. Verifica que el archivo CSV esté en GitHub.")
         st.stop()
 
     # --- ENCABEZADO ---
     col_logo, col_tit, col_g1, col_g2, col_g3 = st.columns([1, 1.5, 1, 1, 1])
     
     with col_logo:
-        # Logo oficial (URL actualizada)
+        # Logo Holos
         st.image("https://www.holos.club/_next/static/media/logo-black.68e7f8e7.svg", width=120)
     
     with col_tit:
@@ -77,8 +77,8 @@ try:
     mask = (df['Anio_Limpio'].isin(anios_sel)) & (df['Mes_Limpio'].isin(meses_sel))
     df_f = df[mask].copy()
 
-    # Función de Círculos con KEY ÚNICA para evitar el error de ID
-    def crear_gauge(anio, color, unique_key):
+    # Función de Círculos ajustada para evitar SyntaxError e ID duplicados
+    def crear_gauge(anio, color):
         val = df_f[df_f['Anio_Limpio'] == anio]['Usabilidad_Limpia'].mean()
         if pd.isna(val) or val == 0: 
             return None
@@ -92,14 +92,21 @@ try:
         return fig
 
     if emp_sel == "Todas las Empresas":
-        g2024 = crear_gauge(2024, "#1f77b4", "g24")
-        if g2024: with col_g1: st.plotly_chart(g2024, use_container_width=True, key="chart_2024")
+        # Gráficos con estructura 'if' tradicional para evitar errores
+        g24 = crear_gauge(2024, "#1f77b4")
+        if g24 is not None:
+            with col_g1:
+                st.plotly_chart(g24, use_container_width=True, key="c2024")
         
-        g2025 = crear_gauge(2025, "#FF4B4B", "g25")
-        if g2025: with col_g2: st.plotly_chart(g2025, use_container_width=True, key="chart_2025")
+        g25 = crear_gauge(2025, "#FF4B4B")
+        if g25 is not None:
+            with col_g2:
+                st.plotly_chart(g25, use_container_width=True, key="c2025")
         
-        g2026 = crear_gauge(2026, "#00CC96", "g26")
-        if g2026: with col_g3: st.plotly_chart(g2026, use_container_width=True, key="chart_2026")
+        g26 = crear_gauge(2026, "#00CC96")
+        if g26 is not None:
+            with col_g3:
+                st.plotly_chart(g26, use_container_width=True, key="c2026")
         
         df_plot = df_f.groupby(['Anio_Limpio', 'Mes_Limpio']).agg({'Usabilidad_Limpia': 'mean', 'Meta_Limpia': 'mean'}).reset_index()
     else:
@@ -109,17 +116,26 @@ try:
     # --- GRÁFICO PRINCIPAL ---
     if not df_plot.empty:
         fig_main = go.Figure()
-        colores = {2024: "#1f77b4", 2025: "#FF4B4B", 2026: "#00CC96"}
+        colores_map = {2024: "#1f77b4", 2025: "#FF4B4B", 2026: "#00CC96"}
         for a in anios_sel:
             d_anio = df_plot[df_plot['Anio_Limpio'] == a]
             if not d_anio.empty:
                 mx = [meses_map.get(m) for m in d_anio['Mes_Limpio']]
-                fig_main.add_trace(go.Bar(x=mx, y=d_anio['Usabilidad_Limpia'], name=f"Real {a}", marker_color=colores.get(a), text=[f"{v:.1%}" for v in d_anio['Usabilidad_Limpia']], textposition='outside'))
-                fig_main.add_trace(go.Scatter(x=mx, y=d_anio['Meta_Limpia'], name=f"Meta {a}", line=dict(dash='dash', color='gray')))
+                fig_main.add_trace(go.Bar(
+                    x=mx, y=d_anio['Usabilidad_Limpia'], 
+                    name=f"Real {a}", 
+                    marker_color=colores_map.get(a, "gray"), 
+                    text=[f"{v:.1%}" for v in d_anio['Usabilidad_Limpia']], 
+                    textposition='outside'
+                ))
+                fig_main.add_trace(go.Scatter(
+                    x=mx, y=d_anio['Meta_Limpia'], 
+                    name=f"Meta {a}", 
+                    line=dict(dash='dash', color='gray')
+                ))
         
         fig_main.update_layout(paper_bgcolor='rgba(0,0,0,0)', plot_bgcolor='white', barmode='group', yaxis=dict(tickformat=".0%"))
-        # Agregamos key al gráfico principal también
-        st.plotly_chart(fig_main, use_container_width=True, key="main_chart")
+        st.plotly_chart(fig_main, use_container_width=True, key="grafico_final")
 
         # --- ANÁLISIS ---
         st.markdown("---")
@@ -131,10 +147,10 @@ try:
                 s1 = d_a[d_a['Mes_Limpio'] <= 6]['Usabilidad_Limpia'].mean()
                 s2 = d_a[d_a['Mes_Limpio'] > 6]['Usabilidad_Limpia'].mean()
                 txt_sem = "1er Semestre" if s1 > s2 else "2do Semestre"
-                ins += f"* **En {a}:** Mejor performance en el **{txt_sem}** ({max(s1,s2):.1%}). "
+                ins += f"* **En {a}:** Mayor performance en el **{txt_sem}** ({max(s1,s2):.1%}). "
         st.info(ins if ins else "No hay datos para el análisis.")
     else:
-        st.warning("No hay datos para la selección actual.")
+        st.warning("Selecciona al menos un Año y Mes para visualizar el gráfico.")
 
 except Exception as e:
-    st.error(f"Error inesperado: {e}")
+    st.error(f"Error: {e}")
