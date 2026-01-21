@@ -6,14 +6,14 @@ import os
 # 1. Configuración de página
 st.set_page_config(page_title="Reporte de Usabilidad Holos", layout="wide")
 
-# ESTILO: Fondo celeste, fuentes Philosopher y transparencia total en gráficos
+# ESTILO: Fondo celeste, fuentes Philosopher y transparencia total
 st.markdown("""
     <link href="https://fonts.googleapis.com/css2?family=Philosopher:wght@400;700&display=swap" rel="stylesheet">
     <style>
         * { font-family: 'Philosopher', sans-serif !important; }
         .stApp { background-color: #D1E9F6; }
         .stSelectbox, .stMultiSelect { background-color: white; border-radius: 8px; }
-        h1 { color: #000000; font-weight: 700; font-size: 3rem !important; margin-bottom: 0px; }
+        h1 { color: #000000; font-weight: 700; font-size: 3.5rem !important; margin-bottom: 0px; }
         [data-testid="stSidebar"] { background-color: #FFFFFF; }
         .stPlotlyChart { background-color: transparent !important; }
     </style>
@@ -63,18 +63,24 @@ try:
     if df.empty:
         st.stop()
 
-    # --- ENCABEZADO ---
-    col_logo, col_tit, col_g1, col_g2, col_g3 = st.columns([0.7, 1.3, 1, 1, 1])
+    # --- ENCABEZADO REORGANIZADO (Logo a la derecha) ---
+    # Usamos columnas para poner el título a la izquierda y el logo al final a la derecha
+    col_tit, col_espacio, col_logo = st.columns([3, 1, 0.6])
+    
+    with col_tit:
+        st.markdown("<h1>Reporte de Usabilidad</h1>", unsafe_allow_html=True)
     
     with col_logo:
         logo_path = "image_e57c24.png" if os.path.exists("image_e57c24.png") else "logo.png"
         if os.path.exists(logo_path):
-            st.image(logo_path, width=130)
+            st.image(logo_path, width=150)
 
-    with col_tit:
-        st.markdown("<h1>Reporte de Usabilidad</h1>", unsafe_allow_html=True)
+    st.markdown("---")
 
-    # --- SIDEBAR (Filtros Desplegables) ---
+    # --- INDICADORES CIRCULARES (GAUGES) ---
+    col_g1, col_g2, col_g3 = st.columns(3)
+
+    # --- SIDEBAR ---
     with st.sidebar:
         st.markdown("### ⚙️ Filtros de Reporte")
         empresas_unicas = sorted([e for e in df['Empresa_Limpia'].unique() if e != 'nan'])
@@ -82,15 +88,13 @@ try:
         anios_sel = st.multiselect("Años a comparar", sorted(df['Anio_Limpio'].unique()), default=sorted(df['Anio_Limpio'].unique()))
         
         meses_map = {1:'Ene', 2:'Feb', 3:'Mar', 4:'Abr', 5:'May', 6:'Jun', 7:'Jul', 8:'Ago', 9:'Set', 10:'Oct', 11:'Nov', 12:'Dic'}
-        meses_sel = st.multiselect("Meses", sorted(meses_map.keys()), default=[1], format_func=lambda x: meses_map[x])
+        meses_sel = st.multiselect("Meses", sorted(meses_map.keys()), default=sorted(meses_map.keys()), format_func=lambda x: meses_map[x])
 
         st.markdown("---")
-        # Cambio solicitado: De "Acumulado" a "Mes Total"
         opciones_raw = sorted(df['Semana_Filtro'].unique().tolist())
         opciones_sin_total = [opt for opt in opciones_raw if "total" not in opt.lower()]
         seleccion_vista = st.selectbox("Detalle Temporal", ["Mes Total"] + opciones_sin_total)
 
-    # --- INDICADORES CIRCULARES GRANDES (GAUGES) ---
     def crear_gauge_grande(anio, color, key):
         data_a = df[df['Anio_Limpio'] == anio]
         if emp_sel != "Todas las Empresas":
@@ -101,14 +105,14 @@ try:
         
         fig = go.Figure(go.Indicator(
             mode="gauge+number", value=val*100,
-            number={'suffix': "%", 'font': {'size': 35, 'color': '#000000', 'bold': True}, 'valueformat':'.1f'},
-            title={'text': str(anio), 'font': {'size': 24, 'color': '#000000', 'bold': True}},
-            gauge={'axis': {'range': [0, 100], 'tickfont': {'size': 12}}, 
+            number={'suffix': "%", 'font': {'size': 45, 'color': '#000000'}, 'valueformat':'.1f'},
+            title={'text': str(anio), 'font': {'size': 30, 'color': '#000000'}},
+            gauge={'axis': {'range': [0, 100], 'tickfont': {'size': 14}}, 
                    'bar': {'color': color},
-                   'bgcolor': "rgba(255,255,255,0.3)",
+                   'bgcolor': "rgba(255,255,255,0.2)",
                    'bordercolor': "black"}
         ))
-        fig.update_layout(height=220, margin=dict(l=10, r=10, t=50, b=0), paper_bgcolor='rgba(0,0,0,0)')
+        fig.update_layout(height=280, margin=dict(l=20, r=20, t=80, b=0), paper_bgcolor='rgba(0,0,0,0)')
         st.plotly_chart(fig, use_container_width=True, key=key)
 
     with col_g1:
@@ -118,7 +122,7 @@ try:
     with col_g3:
         if 2026 in anios_sel: crear_gauge_grande(2026, "#F1FB8C", "c26")
 
-    # --- LÓGICA DE DATOS PARA GRÁFICO ---
+    # --- LÓGICA DE DATOS ---
     mask = (df['Anio_Limpio'].isin(anios_sel)) & (df['Mes_Limpio'].isin(meses_sel))
     if seleccion_vista != "Mes Total":
         mask = mask & (df['Semana_Filtro'] == seleccion_vista)
@@ -127,7 +131,7 @@ try:
     if emp_sel != "Todas las Empresas":
         df_f = df_f[df_f['Empresa_Limpia'] == emp_sel]
 
-    # --- GRÁFICO PRINCIPAL TRANSPARENTE ---
+    # --- GRÁFICO PRINCIPAL ---
     if not df_f.empty:
         eje_x = 'Empresa_Limpia' if emp_sel == "Todas las Empresas" else 'Mes_Limpio'
         df_plot = df_f.groupby([eje_x, 'Anio_Limpio'])['Usabilidad_Limpia'].mean().reset_index()
@@ -143,7 +147,7 @@ try:
                     x=x_labels, y=df_a['Usabilidad_Limpia'],
                     name=str(a), marker_color=colores.get(a),
                     text=[f"{v:.1%}" for v in df_a['Usabilidad_Limpia']], textposition='outside',
-                    textfont=dict(size=14, color="black", bold=True)
+                    textfont=dict(size=15, color="black")
                 ))
         
         fig_main.update_layout(
@@ -155,13 +159,13 @@ try:
         )
         st.plotly_chart(fig_main, use_container_width=True)
 
-        # --- ANÁLISIS INTELIGENTE (RANKING) ---
-        st.markdown("<br><br>", unsafe_allow_html=True)
-        st.subheader("📊 Análisis de Desempeño: Top 5 Empresas")
+        # --- ANÁLISIS DE RANKING ---
+        st.markdown("<br>", unsafe_allow_html=True)
+        st.markdown("### 📊 Top 5 Empresas con Mayor Usabilidad")
         top_5 = df_f.groupby('Empresa_Limpia')['Usabilidad_Limpia'].mean().nlargest(5).reset_index()
         top_5.columns = ['Empresa', 'Usabilidad Promedio']
         top_5['Usabilidad Promedio'] = top_5['Usabilidad Promedio'].map('{:.2%}'.format)
         st.table(top_5)
 
 except Exception as e:
-    st.error(f"Error: {e}")
+    st.error(f"Se detectó un detalle técnico: {e}")
