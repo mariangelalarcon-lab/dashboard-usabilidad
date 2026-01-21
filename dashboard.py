@@ -63,13 +63,10 @@ try:
     if df.empty:
         st.stop()
 
-    # --- ENCABEZADO REORGANIZADO (Logo a la derecha) ---
-    # Usamos columnas para poner el título a la izquierda y el logo al final a la derecha
+    # --- ENCABEZADO ---
     col_tit, col_espacio, col_logo = st.columns([3, 1, 0.6])
-    
     with col_tit:
         st.markdown("<h1>Reporte de Usabilidad</h1>", unsafe_allow_html=True)
-    
     with col_logo:
         logo_path = "image_e57c24.png" if os.path.exists("image_e57c24.png") else "logo.png"
         if os.path.exists(logo_path):
@@ -77,7 +74,11 @@ try:
 
     st.markdown("---")
 
-    # --- INDICADORES CIRCULARES (GAUGES) ---
+    # --- COLORES ACTUALIZADOS ---
+    colores = {2024: "#F1FB8C", 2025: "#FF9F86", 2026: "#A9C1F5"}
+    metas = {2024: 0.35, 2025: 0.40, 2026: 0.45} # Metas de ejemplo ajustables
+
+    # --- INDICADORES CIRCULARES ---
     col_g1, col_g2, col_g3 = st.columns(3)
 
     # --- SIDEBAR ---
@@ -99,7 +100,6 @@ try:
         data_a = df[df['Anio_Limpio'] == anio]
         if emp_sel != "Todas las Empresas":
             data_a = data_a[data_a['Empresa_Limpia'] == emp_sel]
-            
         val = data_a['Usabilidad_Limpia'].mean()
         if pd.isna(val) or val == 0: return
         
@@ -116,13 +116,13 @@ try:
         st.plotly_chart(fig, use_container_width=True, key=key)
 
     with col_g1:
-        if 2024 in anios_sel: crear_gauge_grande(2024, "#A9C1F5", "c24")
+        if 2024 in anios_sel: crear_gauge_grande(2024, colores[2024], "c24")
     with col_g2:
-        if 2025 in anios_sel: crear_gauge_grande(2025, "#FF9F86", "c25")
+        if 2025 in anios_sel: crear_gauge_grande(2025, colores[2025], "c25")
     with col_g3:
-        if 2026 in anios_sel: crear_gauge_grande(2026, "#F1FB8C", "c26")
+        if 2026 in anios_sel: crear_gauge_grande(2026, colores[2026], "c26")
 
-    # --- LÓGICA DE DATOS ---
+    # --- LÓGICA DE DATOS Y GRÁFICO ---
     mask = (df['Anio_Limpio'].isin(anios_sel)) & (df['Mes_Limpio'].isin(meses_sel))
     if seleccion_vista != "Mes Total":
         mask = mask & (df['Semana_Filtro'] == seleccion_vista)
@@ -131,24 +131,26 @@ try:
     if emp_sel != "Todas las Empresas":
         df_f = df_f[df_f['Empresa_Limpia'] == emp_sel]
 
-    # --- GRÁFICO PRINCIPAL ---
     if not df_f.empty:
-        eje_x = 'Empresa_Limpia' if emp_sel == "Todas las Empresas" else 'Mes_Limpio'
+        # Se asegura de mostrar meses si se filtra por empresa
+        eje_x = 'Mes_Limpio' if emp_sel != "Todas las Empresas" else 'Empresa_Limpia'
         df_plot = df_f.groupby([eje_x, 'Anio_Limpio'])['Usabilidad_Limpia'].mean().reset_index()
 
         fig_main = go.Figure()
-        colores = {2024: "#A9C1F5", 2025: "#FF9F86", 2026: "#F1FB8C"}
         
         for a in sorted(anios_sel):
             df_a = df_plot[df_plot['Anio_Limpio'] == a]
             if not df_a.empty:
-                x_labels = df_a[eje_x] if emp_sel == "Todas las Empresas" else [meses_map.get(m) for m in df_a['Mes_Limpio']]
+                x_labels = [meses_map.get(m) for m in df_a[eje_x]] if eje_x == 'Mes_Limpio' else df_a[eje_x]
                 fig_main.add_trace(go.Bar(
                     x=x_labels, y=df_a['Usabilidad_Limpia'],
                     name=str(a), marker_color=colores.get(a),
                     text=[f"{v:.1%}" for v in df_a['Usabilidad_Limpia']], textposition='outside',
-                    textfont=dict(size=15, color="black")
+                    textfont=dict(size=14, color="black")
                 ))
+                # Línea de tendencia (Meta)
+                fig_main.add_hline(y=metas[a], line_dash="dot", line_color=colores[a], 
+                                  annotation_text=f"Meta {a}", annotation_position="right")
         
         fig_main.update_layout(
             paper_bgcolor='rgba(0,0,0,0)', plot_bgcolor='rgba(0,0,0,0)', 
