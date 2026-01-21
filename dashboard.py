@@ -7,17 +7,15 @@ import os
 st.set_page_config(page_title="Reporte de Usabilidad Holos", layout="wide")
 
 # ESTILO BASADO EN TU PALETA DE COLORES
-# Blanco: #FFFFFF | Celeste: #D1E9F6 | Negro: #000000 
-# Amarillo: #F1FB8C | Azul: #A9C1F5 | Salmón: #FF9F86
+# Fondo Celeste: #D1E9F6 | Azul: #A9C1F5 | Salmón: #FF9F86 | Amarillo: #F1FB8C
 st.markdown("""
     <link href="https://fonts.googleapis.com/css2?family=Philosopher:wght@400;700&display=swap" rel="stylesheet">
     <style>
         * { font-family: 'Philosopher', sans-serif !important; }
-        .stApp { background-color: #D1E9F6; } /* Fondo Celeste suave */
+        .stApp { background-color: #D1E9F6; }
         .stSelectbox, .stMultiSelect { background-color: white; border-radius: 8px; }
-        h1 { color: #000000; font-weight: 700; font-size: 2.8rem !important; }
+        h1 { color: #000000; font-weight: 700; font-size: 2.8rem !important; margin: 0; }
         [data-testid="stSidebar"] { background-color: #FFFFFF; }
-        .stMarkdown h3 { color: #000000; }
     </style>
 """, unsafe_allow_html=True)
 
@@ -68,21 +66,23 @@ def load_data():
 try:
     df = load_data()
     if df.empty:
-        st.warning("No se encontraron datos.")
+        st.warning("No se encontraron archivos CSV.")
         st.stop()
 
-    # --- ENCABEZADO ---
+    # --- ENCABEZADO SEGURO ---
     col_logo, col_tit, col_g1, col_g2, col_g3 = st.columns([0.6, 1.4, 1, 1, 1])
     
     with col_logo:
-        # CORRECCIÓN: Ahora busca 'logo.png'
-        if os.path.exists("logo.png"):
-            st.image("logo.png", width=110)
+        # Intenta cargar cualquier imagen disponible para evitar el error crítico
+        logo_files = ["logo.png", "image_e57c24.png"]
+        logo_path = next((f for f in logo_files if os.path.exists(f)), None)
+        if logo_path:
+            st.image(logo_path, width=120)
         else:
-            st.write("Logo no encontrado")
+            st.markdown("### Holos")
 
     with col_tit:
-        st.markdown("<h1>Reporte de Usabilidad</h1>", unsafe_allow_html=True)
+        st.markdown("<h1>Reporte Usabilidad</h1>", unsafe_allow_html=True)
 
     # --- SIDEBAR ---
     with st.sidebar:
@@ -103,10 +103,12 @@ try:
 
     # --- INDICADORES (GAUGES) ---
     def crear_gauge(anio, color, key):
+        # Buscamos "Mes total" para el acumulado anual arriba
         data_a = df[(df['Anio_Limpio'] == anio) & (df['Semana_Filtro'] == "Mes total")]
         if emp_sel != "Todas las Empresas":
             data_a = data_a[data_a['Empresa_Limpia'] == emp_sel]
         
+        # Si no hay "Mes total", promediamos lo que haya
         if data_a.empty:
             data_a = df[df['Anio_Limpio'] == anio]
             
@@ -115,19 +117,19 @@ try:
         
         fig = go.Figure(go.Indicator(
             mode="gauge+number", value=val*100,
-            number={'suffix': "%", 'font': {'size': 20, 'color': '#000000'}, 'valueformat':'.2f'},
-            title={'text': f"Avg {anio}", 'font': {'size': 16, 'color': '#000000'}},
+            number={'suffix': "%", 'font': {'size': 20}, 'valueformat':'.2f'},
+            title={'text': f"Avg {anio}", 'font': {'size': 15}},
             gauge={'axis': {'range': [0, 100]}, 'bar': {'color': color}, 'bgcolor': "white"}
         ))
-        fig.update_layout(height=170, margin=dict(l=20, r=20, t=50, b=10), paper_bgcolor='rgba(0,0,0,0)')
+        fig.update_layout(height=160, margin=dict(l=20, r=20, t=40, b=10), paper_bgcolor='rgba(0,0,0,0)')
         st.plotly_chart(fig, use_container_width=True, key=key)
 
     with col_g1:
-        if 2024 in anios_sel: crear_gauge(2024, "#A9C1F5", "g24") # Azul
+        if 2024 in anios_sel: crear_gauge(2024, "#A9C1F5", "c24")
     with col_g2:
-        if 2025 in anios_sel: crear_gauge(2025, "#FF9F86", "g25") # Salmón
+        if 2025 in anios_sel: crear_gauge(2025, "#FF9F86", "c25")
     with col_g3:
-        if 2026 in anios_sel: crear_gauge(2026, "#F1FB8C", "g26") # Amarillo
+        if 2026 in anios_sel: crear_gauge(2026, "#F1FB8C", "c26")
 
     # --- GRÁFICO PRINCIPAL ---
     mask = (df['Anio_Limpio'].isin(anios_sel)) & \
@@ -140,7 +142,7 @@ try:
 
     if not df_f.empty:
         fig_main = go.Figure()
-        colores_marca = {2024: "#A9C1F5", 2025: "#FF9F86", 2026: "#F1FB8C"}
+        colores = {2024: "#A9C1F5", 2025: "#FF9F86", 2026: "#F1FB8C"}
         eje_x = 'Empresa_Limpia' if emp_sel == "Todas las Empresas" else 'Mes_Limpio'
         
         for a in sorted(anios_sel):
@@ -149,18 +151,18 @@ try:
                 x_vals = df_a[eje_x] if emp_sel == "Todas las Empresas" else [meses_map.get(m) for m in df_a['Mes_Limpio']]
                 fig_main.add_trace(go.Bar(
                     x=x_vals, y=df_a['Usabilidad_Limpia'],
-                    name=f"Año {a}", marker_color=colores_marca.get(a),
+                    name=f"Año {a}", marker_color=colores.get(a),
                     text=[f"{v:.2%}" for v in df_a['Usabilidad_Limpia']], textposition='outside'
                 ))
         
         fig_main.update_layout(
             paper_bgcolor='rgba(0,0,0,0)', plot_bgcolor='white', barmode='group',
-            yaxis=dict(tickformat=".2%", title="Usabilidad"),
+            yaxis=dict(tickformat=".1%", title="Usabilidad"),
             legend=dict(orientation="h", y=1.2, x=0.5, xanchor="center")
         )
-        st.plotly_chart(fig_main, use_container_width=True, key="main_chart")
+        st.plotly_chart(fig_main, use_container_width=True, key="main")
     else:
-        st.info("Selecciona 'Acumulado' o una semana para ver los datos.")
+        st.info("⚠️ No hay datos para mostrar con este filtro. Prueba seleccionando 'Acumulado'.")
 
 except Exception as e:
-    st.error(f"Error: {e}")
+    st.error(f"Hubo un problema técnico: {e}")
