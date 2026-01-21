@@ -76,7 +76,7 @@ try:
 
     # --- COLORES ACTUALIZADOS ---
     colores = {2024: "#F1FB8C", 2025: "#FF9F86", 2026: "#A9C1F5"}
-    metas = {2024: 0.35, 2025: 0.40, 2026: 0.45} # Metas de ejemplo ajustables
+    metas = {2024: 0.35, 2025: 0.40, 2026: 0.45}
 
     # --- INDICADORES CIRCULARES ---
     col_g1, col_g2, col_g3 = st.columns(3)
@@ -122,7 +122,7 @@ try:
     with col_g3:
         if 2026 in anios_sel: crear_gauge_grande(2026, colores[2026], "c26")
 
-    # --- LÓGICA DE DATOS Y GRÁFICO ---
+    # --- LÓGICA DE DATOS Y GRÁFICO (MESES SIEMPRE PRESENTES) ---
     mask = (df['Anio_Limpio'].isin(anios_sel)) & (df['Mes_Limpio'].isin(meses_sel))
     if seleccion_vista != "Mes Total":
         mask = mask & (df['Semana_Filtro'] == seleccion_vista)
@@ -132,16 +132,15 @@ try:
         df_f = df_f[df_f['Empresa_Limpia'] == emp_sel]
 
     if not df_f.empty:
-        # Se asegura de mostrar meses si se filtra por empresa
-        eje_x = 'Mes_Limpio' if emp_sel != "Todas las Empresas" else 'Empresa_Limpia'
-        df_plot = df_f.groupby([eje_x, 'Anio_Limpio'])['Usabilidad_Limpia'].mean().reset_index()
+        # CAMBIO CLAVE: Agrupamos siempre por Mes_Limpio para que salgan en el eje X
+        df_plot = df_f.groupby(['Mes_Limpio', 'Anio_Limpio'])['Usabilidad_Limpia'].mean().reset_index()
 
         fig_main = go.Figure()
         
         for a in sorted(anios_sel):
-            df_a = df_plot[df_plot['Anio_Limpio'] == a]
+            df_a = df_plot[df_plot['Anio_Limpio'] == a].sort_values('Mes_Limpio')
             if not df_a.empty:
-                x_labels = [meses_map.get(m) for m in df_a[eje_x]] if eje_x == 'Mes_Limpio' else df_a[eje_x]
+                x_labels = [meses_map.get(m) for m in df_a['Mes_Limpio']]
                 fig_main.add_trace(go.Bar(
                     x=x_labels, y=df_a['Usabilidad_Limpia'],
                     name=str(a), marker_color=colores.get(a),
@@ -156,12 +155,12 @@ try:
             paper_bgcolor='rgba(0,0,0,0)', plot_bgcolor='rgba(0,0,0,0)', 
             barmode='group',
             yaxis=dict(tickformat=".0%", gridcolor='rgba(0,0,0,0.1)', tickfont=dict(color="black", size=14)),
-            xaxis=dict(tickfont=dict(color="black", size=14)),
+            xaxis=dict(tickfont=dict(color="black", size=14), title="Evolución Mensual"),
             legend=dict(orientation="h", y=1.1, x=0.5, xanchor="center", font=dict(size=16))
         )
         st.plotly_chart(fig_main, use_container_width=True)
 
-        # --- ANÁLISIS DE RANKING ---
+        # --- ANÁLISIS DE RANKING (Aquí sí mostramos empresas) ---
         st.markdown("<br>", unsafe_allow_html=True)
         st.markdown("### 📊 Top 5 Empresas con Mayor Usabilidad")
         top_5 = df_f.groupby('Empresa_Limpia')['Usabilidad_Limpia'].mean().nlargest(5).reset_index()
