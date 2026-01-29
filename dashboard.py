@@ -32,27 +32,43 @@ def encontrar_columna(df, palabras_clave):
             if palabra.lower() in col.lower(): return col
     return None
 
-@st.cache_data(ttl=600) # Se actualiza cada 10 minutos
+@st.cache_data(ttl=600) 
 def load_data():
-    # Conexión directa a Google Sheets
     conn = st.connection("gsheets", type=GSheetsConnection)
     
-    try:
-        # LEER LAS DOS PESTAÑAS ESPECÍFICAS
-        df_old = conn.read(worksheet="Usabilidad 2024/2025")
-        df_new = conn.read(worksheet="Usabilidad 2026")
-        
-        # UNIR AMBAS EN UN SOLO DATAFRAME
-        df = pd.concat([df_old, df_new], ignore_index=True)
-    except Exception as e:
-        st.error(f"Error al leer las pestañas del Sheets: {e}")
-        return pd.DataFrame()
+    lista_dfs = []
     
+    # Intentar leer Pestaña 1
+    try:
+        df1 = conn.read(worksheet="Usabilidad 2024/2025")
+        if not df1.empty: lista_dfs.append(df1)
+    except:
+        st.error("⚠️ No se encontró la pestaña: 'Usabilidad 2024/2025'")
+
+    # Intentar leer Pestaña 2
+    try:
+        df2 = conn.read(worksheet="Usabilidad 2026")
+        if not df2.empty: lista_dfs.append(df2)
+    except:
+        st.error("⚠️ No se encontró la pestaña: 'Usabilidad 2026'")
+
+    if not lista_dfs:
+        return pd.DataFrame()
+
+    # Unir los datos encontrados
+    df = pd.concat(lista_dfs, ignore_index=True)
+    
+    # --- Identificación de columnas ---
     c_emp = encontrar_columna(df, ['Nombre', 'Empresa'])
     c_usa = encontrar_columna(df, ['% Usabilidad', 'Engagement'])
     c_mes = encontrar_columna(df, ['Inicio del Mes', 'Mes'])
     c_ani = encontrar_columna(df, ['Inicio de Año', 'Año'])
     c_sem = encontrar_columna(df, ['Semana', 'Desglose']) 
+
+    # Validación de seguridad
+    if not c_emp or not c_usa:
+        st.error("❌ Las columnas del Excel no coinciden con lo esperado (Empresa o Usabilidad).")
+        return pd.DataFrame()
 
     def limpiar_pct(row):
         valor = row[c_usa]
@@ -61,26 +77,29 @@ def load_data():
         s = str(valor).replace('%', '').replace(',', '.').strip()
         try:
             n = float(s)
+            # Lógica especial para Cardif/Scotiabank
             if any(x in empresa for x in ["cardif", "scotiabank"]):
                 return n / 10000.0 if n > 1.0 else n / 100.0
             return n / 100.0 if n > 1.0 else n
         except: return 0.0
 
+    # Procesamiento de datos
     df['Usabilidad_Limpia'] = df.apply(limpiar_pct, axis=1)
     df['Anio_Limpio'] = pd.to_numeric(df[c_ani], errors='coerce').fillna(0).astype(int)
     df = df[df['Anio_Limpio'] > 2020].copy()
     df['Mes_Limpio'] = pd.to_numeric(df[c_mes], errors='coerce').fillna(0).astype(int)
     df['Empresa_Limpia'] = df[c_emp].astype(str).str.strip()
     df['Semana_Filtro'] = df[c_sem].astype(str).str.strip() if c_sem else "Mes Total"
+    
     return df
 
 try:
     df = load_data()
     if df.empty:
-        st.warning("No se encontraron datos. Revisa los nombres de las pestañas en el código y en Google Sheets.")
+        st.warning("No se pudieron cargar los datos. Revisa el nombre de las pestañas en el Excel.")
         st.stop()
 
-    # --- ENCABEZADO (Logo a la derecha arriba) ---
+    # --- ENCABEZADO ---
     header_col, logo_col = st.columns([4, 1])
     with header_col:
         st.markdown("<h1>Reporte de Usabilidad</h1>", unsafe_allow_html=True)
@@ -109,9 +128,8 @@ try:
 
     st.markdown("---")
 
-    # --- INDICADORES CLAVE (GAUGES CIRCULARES PEQUEÑOS) ---
+    # --- GAUGES ---
     colores_dict = {2024: "#F1FB8C", 2025: "#FF9F86", 2026: "#A9C1F5"}
-    
     if anios_sel:
         gauge_cols = st.columns(len(anios_sel))
         for idx, anio in enumerate(sorted(anios_sel)):
@@ -133,7 +151,7 @@ try:
                 fig_g.update_layout(height=160, margin=dict(l=20, r=20, t=40, b=10), paper_bgcolor='rgba(0,0,0,0)')
                 st.plotly_chart(fig_g, use_container_width=True, key=f"g_{anio}")
 
-    # --- LÓGICA DE DATOS ---
+    # --- TENDENCIA ---
     mask = (df['Anio_Limpio'].isin(anios_sel)) & (df['Mes_Limpio'].isin(meses_sel))
     if seleccion_vista != "Mes Total":
         mask = mask & (df['Semana_Filtro'] == seleccion_vista)
@@ -142,9 +160,8 @@ try:
     if emp_sel != "Todas las Empresas":
         df_f = df_f[df_f['Empresa_Limpia'] == emp_sel]
 
-    # --- GRÁFICO DE TENDENCIA ---
-    st.markdown("### 📈 Evolución Estratégica")
     if not df_f.empty:
+        st.markdown("### 📈 Evolución Estratégica")
         df_plot = df_f.groupby(['Mes_Limpio', 'Anio_Limpio'])['Usabilidad_Limpia'].mean().reset_index()
         fig_main = go.Figure()
         for a in sorted(anios_sel):
@@ -167,27 +184,12 @@ try:
         )
         st.plotly_chart(fig_main, use_container_width=True)
 
-    # --- INSIGHTS ---
-    st.markdown("### 🧠 Insights del Analista AI")
-    col_ins1, col_ins2 = st.columns(2)
-    if not df_f.empty:
-        with col_ins1:
-            mejor_mes_idx = df_f.groupby('Mes_Limpio')['Usabilidad_Limpia'].mean().idxmax()
-            mejor_val = df_f.groupby('Mes_Limpio')['Usabilidad_Limpia'].mean().max()
-            st.info(f"🚀 **Pico de Usabilidad:** Máximo rendimiento en **{meses_map[mejor_mes_idx]}** con **{mejor_val:.1%}**.")
-        with col_ins2:
-            if len(anios_sel) >= 2:
-                v_rec = df[df['Anio_Limpio'] == max(anios_sel)]['Usabilidad_Limpia'].mean()
-                v_pre = df[df['Anio_Limpio'] == min(anios_sel)]['Usabilidad_Limpia'].mean()
-                diff = (v_rec - v_pre) / (v_pre if v_pre != 0 else 1)
-                st.success(f"📈 **Crecimiento:** Variación del **{diff:+.1%}$ interanual.")
-
     # --- RANKING ---
-    if emp_sel == "Todas las Empresas":
+    if emp_sel == "Todas las Empresas" and not df_f.empty:
         st.markdown("### 🏆 Ranking de Performance (Top 5)")
         top_5 = df_f.groupby('Empresa_Limpia')['Usabilidad_Limpia'].mean().nlargest(5).reset_index()
         top_5.columns = ['Empresa', 'Usabilidad Media']
         st.dataframe(top_5.style.format({'Usabilidad Media': '{:.2%}'}).background_gradient(cmap='Blues'), use_container_width=True)
 
 except Exception as e:
-    st.error(f"Error en Dashboard: {e}")
+    st.error(f"Error crítico en Dashboard: {e}")
