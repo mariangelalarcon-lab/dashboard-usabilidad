@@ -15,7 +15,7 @@ st.markdown("""
         * { font-family: 'Inter', sans-serif; }
         h1 { font-family: 'Philosopher', sans-serif !important; color: #1E293B; font-size: 3rem !important; margin-bottom: 0px; }
         h3 { font-family: 'Philosopher', sans-serif !important; color: #1E293B; }
-        .stApp { background-color: #D1E9F6; } /* Fondo celeste original */
+        .stApp { background-color: #D1E9F6; } 
         
         /* Sidebar Profesional */
         [data-testid="stSidebar"] { background-color: #FFFFFF; border-right: 1px solid #E2E8F0; }
@@ -36,7 +36,17 @@ def encontrar_columna(df, palabras_clave):
 def load_data():
     # Conexión directa a Google Sheets
     conn = st.connection("gsheets", type=GSheetsConnection)
-    df = conn.read()
+    
+    try:
+        # LEER LAS DOS PESTAÑAS ESPECÍFICAS
+        df_old = conn.read(worksheet="Usabilidad 2024/2025")
+        df_new = conn.read(worksheet="Usabilidad 2026")
+        
+        # UNIR AMBAS EN UN SOLO DATAFRAME
+        df = pd.concat([df_old, df_new], ignore_index=True)
+    except Exception as e:
+        st.error(f"Error al leer las pestañas del Sheets: {e}")
+        return pd.DataFrame()
     
     c_emp = encontrar_columna(df, ['Nombre', 'Empresa'])
     c_usa = encontrar_columna(df, ['% Usabilidad', 'Engagement'])
@@ -67,7 +77,7 @@ def load_data():
 try:
     df = load_data()
     if df.empty:
-        st.warning("No se encontraron datos en la fuente conectada.")
+        st.warning("No se encontraron datos. Revisa los nombres de las pestañas en el código y en Google Sheets.")
         st.stop()
 
     # --- ENCABEZADO (Logo a la derecha arriba) ---
@@ -99,7 +109,7 @@ try:
 
     st.markdown("---")
 
-    # --- INDICADORES CLAVE (GAUGES MÁS PEQUEÑOS) ---
+    # --- INDICADORES CLAVE (GAUGES CIRCULARES PEQUEÑOS) ---
     colores_dict = {2024: "#F1FB8C", 2025: "#FF9F86", 2026: "#A9C1F5"}
     
     if anios_sel:
@@ -114,13 +124,13 @@ try:
                 
                 fig_g = go.Figure(go.Indicator(
                     mode="gauge+number", value=avg_val*100,
-                    number={'suffix': "%", 'font': {'size': 26, 'color': '#1E293B'}, 'valueformat':'.1f'},
+                    number={'suffix': "%", 'font': {'size': 24, 'color': '#1E293B'}, 'valueformat':'.1f'},
                     title={'text': f"Promedio {anio}", 'font': {'size': 16, 'color': '#475569'}},
                     gauge={'axis': {'range': [0, 100], 'tickfont': {'size': 10}}, 
                            'bar': {'color': colores_dict.get(anio, "#CBD5E1")},
                            'bgcolor': "white", 'bordercolor': "#E2E8F0"}
                 ))
-                fig_g.update_layout(height=170, margin=dict(l=20, r=20, t=40, b=10), paper_bgcolor='rgba(0,0,0,0)')
+                fig_g.update_layout(height=160, margin=dict(l=20, r=20, t=40, b=10), paper_bgcolor='rgba(0,0,0,0)')
                 st.plotly_chart(fig_g, use_container_width=True, key=f"g_{anio}")
 
     # --- LÓGICA DE DATOS ---
