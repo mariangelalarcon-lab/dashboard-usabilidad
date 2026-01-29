@@ -4,24 +4,18 @@ import plotly.graph_objects as go
 import os
 from streamlit_gsheets import GSheetsConnection
 
-# 1. Configuración de página de alta definición
+# 1. Configuración de página
 st.set_page_config(page_title="Reporte de Usabilidad", layout="wide", initial_sidebar_state="expanded")
 
-# --- ESTILO CSS AVANZADO ---
+# --- ESTILO CSS ---
 st.markdown("""
     <link href="https://fonts.googleapis.com/css2?family=Philosopher:wght@400;700&family=Inter:wght@300;400;600&display=swap" rel="stylesheet">
     <style>
-        /* Estética General */
         * { font-family: 'Inter', sans-serif; }
         h1 { font-family: 'Philosopher', sans-serif !important; color: #1E293B; font-size: 3rem !important; margin-bottom: 0px; }
         h3 { font-family: 'Philosopher', sans-serif !important; color: #1E293B; }
         .stApp { background-color: #D1E9F6; } 
-        
-        /* Sidebar Profesional */
         [data-testid="stSidebar"] { background-color: #FFFFFF; border-right: 1px solid #E2E8F0; }
-        .stSelectbox label { font-weight: 600; color: #475569; }
-        
-        /* Ajuste de Gráficos */
         .stPlotlyChart { background-color: transparent !important; }
     </style>
 """, unsafe_allow_html=True)
@@ -35,39 +29,38 @@ def encontrar_columna(df, palabras_clave):
 @st.cache_data(ttl=600) 
 def load_data():
     conn = st.connection("gsheets", type=GSheetsConnection)
-    
     lista_dfs = []
     
-    # Intentar leer Pestaña 1
+    # Intentamos leer por posición (Índice 0 y 1)
     try:
-        df1 = conn.read(worksheet="Usabilidad 2024/2025")
+        # Pestaña 1
+        df1 = conn.read(worksheet=0)
         if not df1.empty: lista_dfs.append(df1)
-    except:
-        st.error("⚠️ No se encontró la pestaña: 'Usabilidad 2024/2025'")
+    except Exception as e:
+        st.error(f"⚠️ Error al leer la pestaña 1: {e}")
 
-    # Intentar leer Pestaña 2
     try:
-        df2 = conn.read(worksheet="Usabilidad 2026")
+        # Pestaña 2
+        df2 = conn.read(worksheet=1)
         if not df2.empty: lista_dfs.append(df2)
     except:
-        st.error("⚠️ No se encontró la pestaña: 'Usabilidad 2026'")
+        # Si falla la pestaña 2, simplemente no la agrega (puede que esté vacía aún)
+        pass
 
     if not lista_dfs:
         return pd.DataFrame()
 
-    # Unir los datos encontrados
     df = pd.concat(lista_dfs, ignore_index=True)
     
-    # --- Identificación de columnas ---
+    # Identificar columnas
     c_emp = encontrar_columna(df, ['Nombre', 'Empresa'])
     c_usa = encontrar_columna(df, ['% Usabilidad', 'Engagement'])
     c_mes = encontrar_columna(df, ['Inicio del Mes', 'Mes'])
     c_ani = encontrar_columna(df, ['Inicio de Año', 'Año'])
     c_sem = encontrar_columna(df, ['Semana', 'Desglose']) 
 
-    # Validación de seguridad
     if not c_emp or not c_usa:
-        st.error("❌ Las columnas del Excel no coinciden con lo esperado (Empresa o Usabilidad).")
+        st.error("❌ No se encontraron las columnas necesarias. Revisa que el Excel tenga 'Empresa' y '% Usabilidad'.")
         return pd.DataFrame()
 
     def limpiar_pct(row):
@@ -77,13 +70,11 @@ def load_data():
         s = str(valor).replace('%', '').replace(',', '.').strip()
         try:
             n = float(s)
-            # Lógica especial para Cardif/Scotiabank
             if any(x in empresa for x in ["cardif", "scotiabank"]):
                 return n / 10000.0 if n > 1.0 else n / 100.0
             return n / 100.0 if n > 1.0 else n
         except: return 0.0
 
-    # Procesamiento de datos
     df['Usabilidad_Limpia'] = df.apply(limpiar_pct, axis=1)
     df['Anio_Limpio'] = pd.to_numeric(df[c_ani], errors='coerce').fillna(0).astype(int)
     df = df[df['Anio_Limpio'] > 2020].copy()
@@ -96,7 +87,7 @@ def load_data():
 try:
     df = load_data()
     if df.empty:
-        st.warning("No se pudieron cargar los datos. Revisa el nombre de las pestañas en el Excel.")
+        st.warning("No se encontraron datos. Verifica el acceso en el botón azul 'Compartir' de Google Sheets.")
         st.stop()
 
     # --- ENCABEZADO ---
@@ -183,13 +174,6 @@ try:
             legend=dict(orientation="h", y=1.1, x=0.5, xanchor="center")
         )
         st.plotly_chart(fig_main, use_container_width=True)
-
-    # --- RANKING ---
-    if emp_sel == "Todas las Empresas" and not df_f.empty:
-        st.markdown("### 🏆 Ranking de Performance (Top 5)")
-        top_5 = df_f.groupby('Empresa_Limpia')['Usabilidad_Limpia'].mean().nlargest(5).reset_index()
-        top_5.columns = ['Empresa', 'Usabilidad Media']
-        st.dataframe(top_5.style.format({'Usabilidad Media': '{:.2%}'}).background_gradient(cmap='Blues'), use_container_width=True)
 
 except Exception as e:
     st.error(f"Error crítico en Dashboard: {e}")
