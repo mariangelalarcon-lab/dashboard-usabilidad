@@ -1,40 +1,32 @@
 import streamlit as st
 import pandas as pd
-from streamlit_gsheets import GSheetsConnection
+import plotly.graph_objects as go
 
-st.set_page_config(page_title="Diagnóstico de Conexión", layout="wide")
+st.set_page_config(page_title="Reporte de Usabilidad", layout="wide")
 
-st.title("🔍 Diagnóstico Maestro de Conexión")
+# PEGA AQUÍ EL LINK QUE COPIASTE EN EL PASO ANTERIOR
+# Debe terminar en output=csv
+URL_CSV = "TU_LINK_DE_PUBLICAR_EN_LA_WEB_AQUI"
 
-# Definimos el link directamente aquí para evitar errores de Secrets
-URL_SHEET = "https://docs.google.com/spreadsheets/d/1bnhhWjkBJKEoie7_PuKRUSjAebnkst7d/edit"
+@st.cache_data(ttl=600)
+def load_data():
+    try:
+        # Leemos directamente el CSV público
+        df = pd.read_csv(URL_CSV)
+        return df
+    except Exception as e:
+        st.error(f"Error al leer el CSV: {e}")
+        return pd.DataFrame()
 
-try:
-    # Intentamos conectar usando el link directo
-    conn = st.connection("gsheets", type=GSheetsConnection)
+st.title("📊 Reporte de Usabilidad (Modo Directo)")
+
+df = load_data()
+
+if not df.empty:
+    st.success("¡Datos cargados con éxito!")
+    st.write("### Vista previa de los datos encontrados:")
+    st.dataframe(df.head())
     
-    # Intentamos leer la primera pestaña disponible usando el link directo
-    df = conn.read(spreadsheet=URL_SHEET)
-    
-    if df is not None:
-        st.success("✅ ¡CONEXIÓN EXITOSA!")
-        st.write("### Columnas detectadas:")
-        st.write(list(df.columns))
-        st.write("### Vista previa de datos:")
-        st.dataframe(df.head())
-    else:
-        st.error("El archivo devolvió un objeto vacío.")
-
-except Exception as e:
-    st.error(f"❌ Error crítico de conexión: {e}")
-    
-    st.markdown("""
-    ### Si sigues viendo Error 404, revisa esto:
-    1. **En GitHub:** Revisa tu archivo `requirements.txt`. Debe tener exactamente estas líneas:
-       ```
-       streamlit
-       pandas
-       st-gsheets-connection
-       ```
-    2. **En Streamlit Cloud:** Borra la App y vuelve a crearla desde el repositorio. A veces la "instancia" de la App se queda corrupta con el error 404 y no se limpia con un reinicio.
-    """)
+    # Aquí ya podríamos re-insertar toda tu lógica de gráficos
+else:
+    st.warning("Aún no podemos acceder a los datos. Asegúrate de haberle dado a 'Publicar' en el Excel.")
