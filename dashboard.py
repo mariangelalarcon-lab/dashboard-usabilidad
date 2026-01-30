@@ -6,7 +6,7 @@ st.set_page_config(page_title="Reporte Beholos", layout="wide")
 
 # --- COPIA TU LINK AQUÍ ---
 # El link que obtuviste en el paso anterior (el de Publicar en la Web)
-URL_DATOS = "PEGA_AQUI_TU_LINK_DE_PUBLICAR_EN_LA_WEB"
+URL_DATOS = "https://docs.google.com/spreadsheets/d/e/TU_CODIGO_AQUI/pub?output=csv"
 
 @st.cache_data(ttl=300)
 def cargar_datos():
