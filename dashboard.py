@@ -2,31 +2,37 @@ import streamlit as st
 import pandas as pd
 import plotly.graph_objects as go
 
-st.set_page_config(page_title="Reporte de Usabilidad", layout="wide")
+st.set_page_config(page_title="Reporte Beholos", layout="wide")
 
-# PEGA AQUÍ EL LINK QUE COPIASTE EN EL PASO ANTERIOR
-# Debe terminar en output=csv
-URL_CSV = "TU_LINK_DE_PUBLICAR_EN_LA_WEB_AQUI"
+# --- COPIA TU LINK AQUÍ ---
+# El link que obtuviste en el paso anterior (el de Publicar en la Web)
+URL_DATOS = "PEGA_AQUI_TU_LINK_DE_PUBLICAR_EN_LA_WEB"
 
-@st.cache_data(ttl=600)
-def load_data():
+@st.cache_data(ttl=300)
+def cargar_datos():
     try:
-        # Leemos directamente el CSV público
-        df = pd.read_csv(URL_CSV)
+        # Cargamos los datos directamente
+        df = pd.read_csv(URL_DATOS)
+        # Limpiamos nombres de columnas por si tienen espacios
+        df.columns = [str(c).strip() for c in df.columns]
         return df
     except Exception as e:
-        st.error(f"Error al leer el CSV: {e}")
+        st.error(f"No se pudieron cargar los datos: {e}")
         return pd.DataFrame()
 
-st.title("📊 Reporte de Usabilidad (Modo Directo)")
+st.title("📊 Dashboard de Usabilidad")
 
-df = load_data()
+df = cargar_datos()
 
 if not df.empty:
-    st.success("¡Datos cargados con éxito!")
-    st.write("### Vista previa de los datos encontrados:")
-    st.dataframe(df.head())
+    st.success("✅ ¡Conexión exitosa! Datos cargados.")
     
-    # Aquí ya podríamos re-insertar toda tu lógica de gráficos
+    # Esto te mostrará tus datos en una tabla para confirmar que todo está bien
+    st.subheader("Vista previa de la información")
+    st.dataframe(df)
+    
+    # Aquí puedes agregar un gráfico rápido para probar
+    st.subheader("Análisis Rápido")
+    st.info("Una vez que confirmes que ves la tabla arriba, podemos personalizar tus gráficos.")
 else:
-    st.warning("Aún no podemos acceder a los datos. Asegúrate de haberle dado a 'Publicar' en el Excel.")
+    st.warning("Esperando datos... Revisa que hayas publicado el Excel correctamente.")
