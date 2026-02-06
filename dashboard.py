@@ -29,7 +29,7 @@ st.markdown(f"""
     </style>
 """, unsafe_allow_html=True)
 
-@st.cache_data(ttl=300)
+@st.cache_data(ttl=60) # Bajamos el cache para que los cambios se vean rápido
 def cargar_data():
     try:
         df1 = pd.read_csv(LINK_1)
@@ -44,6 +44,7 @@ def cargar_data():
 
         def limpiar_num(val):
             try:
+                if pd.isna(val): return 0.0
                 s = str(val).replace('%', '').replace(',', '.').strip()
                 n = float(s)
                 return n / 100.0 if n > 1.1 else n
@@ -63,7 +64,7 @@ df, col_emp, col_ani, col_mes = cargar_data()
 if not df.empty:
     with st.sidebar:
         st.markdown("### 🎛️ Filtros")
-        lista_empresas = sorted([e for e in df[col_emp].unique() if str(e) not in ['nan', 'None']])
+        lista_empresas = sorted([e for e in df[col_emp].unique() if str(e) not in ['nan', 'None', 'nan']])
         empresa_sel = st.selectbox("Empresa Target", ["Todas las Empresas"] + lista_empresas)
         
         anios_disp = sorted([a for a in df[col_ani].unique() if a > 2020], reverse=True)
@@ -75,15 +76,18 @@ if not df.empty:
 
     st.markdown(f"<h1>📊 Reporte de Usabilidad: {empresa_sel}</h1>", unsafe_allow_html=True)
 
-    # FILTRADO
+    # FILTRADO BASE
     df_f = df[(df[col_ani].isin(anios_sel)) & (df[col_mes].isin(meses_sel))].copy()
     if empresa_sel != "Todas las Empresas":
         df_f = df_f[df_f[col_emp] == empresa_sel]
 
-    # --- LÓGICA DE CÁLCULO (Promedio Simple coincidente con Excel) ---
-    def calcular_media_excel(df_in):
-        if df_in.empty: return 0.0
-        return df_in['Usabilidad_V'].mean()
+    # --- NUEVA LÓGICA DE CÁLCULO PARA ELIMINAR EL ERROR DEL 19% ---
+    def obtener_valor_final(df_contexto):
+        if df_contexto.empty: return 0.0
+        # Agrupamos por empresa y mes para obtener el último valor reportado (evita promediar semanas)
+        # Luego promediamos esos valores finales (Lógica de tu Excel: 32.72%)
+        resumen = df_contexto.groupby(['Empresa_V', 'Mes_V', 'Anio_V'])['Usabilidad_V'].last().reset_index()
+        return resumen['Usabilidad_V'].mean()
 
     # --- GAUGES ---
     colores_config = {2024: LEAF, 2025: CORAL, 2026: SEA}
@@ -94,10 +98,10 @@ if not df.empty:
         for i, anio in enumerate(anios_activos):
             with gauge_cols[i]:
                 df_anio = df_f[df_f[col_ani] == anio]
-                promedio = calcular_media_excel(df_anio)
+                promedio_final = obtener_valor_final(df_anio)
                 
                 fig_g = go.Figure(go.Indicator(
-                    mode="gauge+number", value=(promedio or 0)*100,
+                    mode="gauge+number", value=promedio_final * 100,
                     number={'suffix': "%", 'font': {'size': 28, 'color': BLACK}, 'valueformat': '.1f'},
                     title={'text': f"Promedio {anio}", 'font': {'size': 18, 'color': BLACK}},
                     gauge={'axis': {'range': [0, 100], 'tickcolor': BLACK},
@@ -107,16 +111,18 @@ if not df.empty:
                 fig_g.update_layout(height=220, margin=dict(l=30, r=30, t=50, b=20), paper_bgcolor='rgba(0,0,0,0)')
                 st.plotly_chart(fig_g, use_container_width=True, key=f"gauge_{anio}")
 
-    # --- CURVA DE ENGAGEMENT CORREGIDA ---
+    # --- CURVA DE ENGAGEMENT ---
     st.markdown("### 📈 Curva de Engagement")
     if not df_f.empty:
-        # Agrupamos por año y mes usando el promedio simple (coincide con Excel)
-        df_ev = df_f.groupby([col_ani, col_mes])['Usabilidad_V'].mean().reset_index()
-        df_ev = df_ev.sort_values([col_ani, col_mes])
+        # Aquí también aplicamos .last() para que si Natura tiene varias semanas, solo use la última
+        df_ev = df_f.groupby([col_ani, col_mes, col_emp])['Usabilidad_V'].last().reset_index()
+        # Luego promediamos por mes para la línea general
+        df_linea = df_ev.groupby([col_ani, col_mes])['Usabilidad_V'].mean().reset_index()
+        df_linea = df_linea.sort_values([col_ani, col_mes])
         
         fig_line = go.Figure()
         for anio in sorted(anios_sel):
-            df_a = df_ev[df_ev[col_ani] == anio]
+            df_a = df_linea[df_linea[col_ani] == anio]
             if not df_a.empty:
                 fig_line.add_trace(go.Scatter(
                     x=[meses_map.get(m) for m in df_a[col_mes]], 
@@ -125,34 +131,18 @@ if not df.empty:
                     mode='lines+markers+text',
                     line=dict(color=colores_config.get(anio, BLACK), width=4),
                     text=[f"{v:.1%}" for v in df_a['Usabilidad_V']],
-                    textposition="top center",
-                    connectgaps=True
+                    textposition="top center"
                 ))
         
         fig_line.update_layout(
-            yaxis=dict(tickformat=".0%", range=[0, 1.1], gridcolor='rgba(0,0,0,0.1)'),
+            yaxis=dict(tickformat=".1%", range=[0, 1.1], gridcolor='rgba(0,0,0,0.1)'),
             xaxis=dict(showgrid=False),
             paper_bgcolor='rgba(0,0,0,0)', plot_bgcolor='rgba(0,0,0,0)',
             height=450, legend=dict(orientation="h", y=1.1, x=0.5, xanchor="center")
         )
         st.plotly_chart(fig_line, use_container_width=True)
 
-    # --- INFORME INTELIGENTE ---
-    st.markdown("### 🧠 Informe de Desempeño Holos")
-    if not df_f.empty:
-        total_avg = calcular_media_excel(df_f)
-        stats_mes = df_f.groupby(col_mes)['Usabilidad_V'].mean()
-        mejor_mes_num = stats_mes.idxmax()
-        
-        st.markdown(f"""
-        <div class='insight-card'>
-            <strong>Análisis Ejecutivo:</strong> El nivel de usabilidad promedio bajo estos filtros es de <b>{total_avg:.1%}</b>.<br>
-            <strong>Punto Máximo:</strong> El mes de mayor rendimiento detectado es <b>{meses_map.get(mejor_mes_num)}</b>.<br>
-            <strong>Nota metodológica:</strong> Este promedio refleja la media de desempeño por cuenta (coincidente con análisis internos).
-        </div>
-        """, unsafe_allow_html=True)
-
     with st.expander("📂 Explorar registros detallados"):
         st.dataframe(df_f)
 else:
-    st.error("No se detectaron datos. Revisa la conexión con Google Sheets.")
+    st.error("No se detectaron datos. Revisa la conexión.")
