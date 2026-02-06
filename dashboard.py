@@ -2,107 +2,108 @@ import streamlit as st
 import pandas as pd
 import plotly.graph_objects as go
 
-# Configuración básica
-st.set_page_config(page_title="Holos BI", layout="wide")
+# Configuración de página
+st.set_page_config(page_title="Holos | BI", layout="wide")
 
-# Enlaces
+# Enlaces de datos
 LINK_1 = "https://docs.google.com/spreadsheets/d/e/2PACX-1vSWiXR7BLxwzX2wtD_uF59pvxtus8BL5iqgymKSh2-Llwt6smOJzR7ROUxICr57DA/pub?gid=1638907402&single=true&output=csv"
 LINK_2 = "https://docs.google.com/spreadsheets/d/e/2PACX-1vSWiXR7BLxwzX2wtD_uF59pvxtus8BL5iqgymKSh2-Llwt6smOJzR7ROUxICr57DA/pub?gid=1341962834&single=true&output=csv"
 
-# Colores
+# Colores Holos
 SKY, LEAF, SEA, CORAL, BLACK = "#D1E9F6", "#F1FB8C", "#A9C1F5", "#FF9F86", "#000000"
 
-@st.cache_data(ttl=60)
-def load_data():
+@st.cache_data(ttl=30)
+def cargar_data():
     try:
+        # Carga y limpieza básica
         df1 = pd.read_csv(LINK_1)
         df2 = pd.read_csv(LINK_2)
         df = pd.concat([df1, df2], ignore_index=True)
         df.columns = [str(c).strip() for c in df.columns]
         
-        # Mapeo de columnas esenciales
+        # Identificación de columnas por posición o nombre (más robusto)
+        # Buscamos la columna H (índice 7) o la que contenga el símbolo %
+        c_usa = next((c for c in df.columns if '%' in c or 'Usabilidad' in c), df.columns[7])
         c_emp = next((c for c in df.columns if 'Empresa' in c), df.columns[0])
-        c_col = next((c for c in df.columns if 'Colaboradores' in c), None)
-        c_uti = next((c for c in df.columns if 'utilizaron' in c), None)
-        c_mes = next((c for c in df.columns if 'Mes' in c and 'total' not in c.lower()), None)
-        c_ani = next((c for c in df.columns if 'Año' in c or 'Anio' in c), None)
+        c_mes = next((c for c in df.columns if 'Mes' in c and 'total' not in c.lower()), df.columns[2])
+        c_ani = next((c for c in df.columns if 'Año' in c or 'Anio' in c), df.columns[11])
 
-        # Convertir a números
-        df['Colab'] = pd.to_numeric(df[c_col], errors='coerce').fillna(0)
-        df['Util'] = pd.to_numeric(df[c_uti], errors='coerce').fillna(0)
-        df['Anio'] = pd.to_numeric(df[c_ani], errors='coerce').fillna(0).astype(int)
-        df['Mes'] = pd.to_numeric(df[c_mes], errors='coerce').fillna(0).astype(int)
-        df['Empresa'] = df[c_emp].astype(str).str.strip()
+        def limpiar_porcentaje(val):
+            try:
+                if pd.isna(val): return 0.0
+                s = str(val).replace('%', '').replace(',', '.').strip()
+                n = float(s)
+                # Si el número es > 1 (ej. 35.92), lo dividimos por 100
+                return n / 100.0 if n > 1.1 else n
+            except: return 0.0
+
+        df['Usabilidad_V'] = df[c_usa].apply(limpiar_porcentaje)
+        df['Anio_V'] = pd.to_numeric(df[c_ani], errors='coerce').fillna(0).astype(int)
+        df['Mes_V'] = pd.to_numeric(df[c_mes], errors='coerce').fillna(0).astype(int)
+        df['Empresa_V'] = df[c_emp].astype(str).str.strip()
         
         return df
-    except:
+    except Exception as e:
+        st.error(f"Error técnico: {e}")
         return pd.DataFrame()
 
-df = load_data()
+df = cargar_data()
 
 if not df.empty:
-    # --- Sidebar ---
     with st.sidebar:
         st.header("Filtros")
-        empresas = sorted(df['Empresa'].unique())
-        emp_sel = st.selectbox("Seleccionar Empresa", ["Todas las Empresas"] + empresas)
-        anios = sorted(df['Anio'].unique(), reverse=True)
-        anios_sel = st.multiselect("Años", anios, default=[2025, 2026])
+        empresas = sorted([e for e in df['Empresa_V'].unique() if str(e) != 'nan'])
+        empresa_sel = st.selectbox("Empresa Target", ["Todas las Empresas"] + empresas)
+        anios_sel = st.multiselect("Años", sorted(df['Anio_V'].unique(), reverse=True), default=[2025, 2026])
         meses_map = {1:'Ene', 2:'Feb', 3:'Mar', 4:'Abr', 5:'May', 6:'Jun', 7:'Jul', 8:'Ago', 9:'Set', 10:'Oct', 11:'Nov', 12:'Dic'}
         meses_sel = st.multiselect("Meses", sorted(meses_map.keys()), default=list(meses_map.keys()), format_func=lambda x: meses_map[x])
 
-    st.title(f"Reporte: {emp_sel}")
+    st.title(f"Reporte: {empresa_sel}")
 
-    # Filtrado base
-    df_f = df[(df['Anio'].isin(anios_sel)) & (df['Mes'].isin(meses_sel))]
-    if emp_sel != "Todas las Empresas":
-        df_f = df_f[df_f['Empresa'] == emp_sel]
+    # Filtrado dinámico
+    mask = (df['Anio_V'].isin(anios_sel)) & (df['Mes_V'].isin(meses_sel))
+    df_f = df[mask].copy()
 
-    # --- Gauges ---
-    color_map = {2024: LEAF, 2025: CORAL, 2026: SEA}
-    actual_anios = sorted(df_f['Anio'].unique())
+    if empresa_sel != "Todas las Empresas":
+        df_f = df_f[df_f['Empresa_V'] == empresa_sel]
+
+    # --- MÉTRICAS (Gauges) ---
+    anios_activos = sorted(df_f['Anio_V'].unique())
+    colores = {2024: LEAF, 2025: CORAL, 2026: SEA}
     
-    if actual_anios:
-        cols = st.columns(len(actual_anios))
-        for i, a in enumerate(actual_anios):
+    if anios_activos:
+        cols = st.columns(len(anios_activos))
+        for i, anio in enumerate(anios_activos):
             with cols[i]:
-                df_a = df_f[df_f['Anio'] == a]
-                # CÁLCULO REAL: Usuarios / Colaboradores
-                total_u = df_a['Util'].sum()
-                total_c = df_a['Colab'].sum()
-                val = (total_u / total_c * 100) if total_c > 0 else 0
+                # Aquí está el truco: promedio simple de la columna de porcentajes
+                val = df_f[df_f['Anio_V'] == anio]['Usabilidad_V'].mean()
                 
                 fig = go.Figure(go.Indicator(
-                    mode="gauge+number", value=val,
-                    number={'suffix': "%", 'valueformat': '.1f'},
-                    title={'text': f"Media {a}"},
+                    mode="gauge+number", value=val*100,
+                    number={'suffix': "%", 'valueformat': '.2f'},
+                    title={'text': f"Media {anio}"},
                     gauge={'axis': {'range': [0, 100]}, 'bar': {'color': BLACK},
-                           'steps': [{'range': [0, 100], 'color': color_map.get(a, SKY)}]}
+                           'steps': [{'range': [0, 100], 'color': colores.get(anio, SKY)}]}
                 ))
-                fig.update_layout(height=250, margin=dict(l=20,r=20,t=40,b=20))
-                st.plotly_chart(fig, use_container_width=True)
+                fig.update_layout(height=260, margin=dict(l=20, r=20, t=40, b=20))
+                st.plotly_chart(fig, use_container_width=True, key=f"gauge_{anio}")
 
-    # --- Gráfica de Líneas ---
+    # --- GRÁFICA DE LÍNEAS ---
     st.subheader("Curva de Engagement")
-    # Agrupamos por año y mes para la línea
-    df_linea = df_f.groupby(['Anio', 'Mes']).apply(
-        lambda x: (x['Util'].sum() / x['Colab'].sum() * 100) if x['Colab'].sum() > 0 else 0
-    ).reset_index(name='Val')
-
-    fig_line = go.Figure()
-    for a in actual_anios:
-        df_plot = df_linea[df_linea['Anio'] == a].sort_values('Mes')
-        fig_line.add_trace(go.Scatter(
-            x=[meses_map[m] for m in df_plot['Mes']], 
-            y=df_plot['Val'],
-            name=f"Año {a}",
-            mode='lines+markers',
-            line=dict(color=color_map.get(a, BLACK), width=3)
-        ))
+    df_ev = df_f.groupby(['Anio_V', 'Mes_V'])['Usabilidad_V'].mean().reset_index()
     
-    fig_line.update_layout(yaxis_range=[0, 105], height=400)
-    st.plotly_chart(fig_line, use_container_width=True)
+    fig_l = go.Figure()
+    for anio in anios_activos:
+        df_p = df_ev[df_ev['Anio_V'] == anio].sort_values('Mes_V')
+        fig_l.add_trace(go.Scatter(
+            x=[meses_map[m] for m in df_p['Mes_V']], y=df_p['Usabilidad_V'],
+            name=str(anio), mode='lines+markers+text',
+            text=[f"{v:.1%}" for v in df_p['Usabilidad_V']], textposition="top center",
+            line=dict(color=colores.get(anio, BLACK), width=3)
+        ))
+    fig_l.update_layout(yaxis=dict(tickformat=".0%", range=[0, 1.1]), height=400)
+    st.plotly_chart(fig_l, use_container_width=True)
 
-    # Tabla de comprobación (Opcional, para que veas que los datos están ahí)
-    with st.expander("Ver detalle de datos"):
-        st.dataframe(df_f[['Empresa', 'Anio', 'Mes', 'Colab', 'Util']])
+    # Tabla de comprobación para tu tranquilidad
+    with st.expander("Verificar datos de la selección"):
+        st.dataframe(df_f[['Empresa_V', 'Anio_V', 'Mes_V', 'Usabilidad_V']])
