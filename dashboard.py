@@ -80,6 +80,11 @@ if not df.empty:
     if empresa_sel != "Todas las Empresas":
         df_f = df_f[df_f[col_emp] == empresa_sel]
 
+    # --- LÓGICA DE CÁLCULO (Promedio Simple coincidente con Excel) ---
+    def calcular_media_excel(df_in):
+        if df_in.empty: return 0.0
+        return df_in['Usabilidad_V'].mean()
+
     # --- GAUGES ---
     colores_config = {2024: LEAF, 2025: CORAL, 2026: SEA}
     anios_activos = sorted(df_f[col_ani].unique())
@@ -88,7 +93,9 @@ if not df.empty:
         gauge_cols = st.columns(len(anios_activos))
         for i, anio in enumerate(anios_activos):
             with gauge_cols[i]:
-                promedio = df_f[df_f[col_ani] == anio]['Usabilidad_V'].mean()
+                df_anio = df_f[df_f[col_ani] == anio]
+                promedio = calcular_media_excel(df_anio)
+                
                 fig_g = go.Figure(go.Indicator(
                     mode="gauge+number", value=(promedio or 0)*100,
                     number={'suffix': "%", 'font': {'size': 28, 'color': BLACK}, 'valueformat': '.1f'},
@@ -103,9 +110,9 @@ if not df.empty:
     # --- CURVA DE ENGAGEMENT CORREGIDA ---
     st.markdown("### 📈 Curva de Engagement")
     if not df_f.empty:
-        # IMPORTANTE: Agrupar y ordenar para evitar el error de líneas cruzadas
+        # Agrupamos por año y mes usando el promedio simple (coincide con Excel)
         df_ev = df_f.groupby([col_ani, col_mes])['Usabilidad_V'].mean().reset_index()
-        df_ev = df_ev.sort_values([col_ani, col_mes]) # Esto ordena Ene -> Dic
+        df_ev = df_ev.sort_values([col_ani, col_mes])
         
         fig_line = go.Figure()
         for anio in sorted(anios_sel):
@@ -133,8 +140,7 @@ if not df.empty:
     # --- INFORME INTELIGENTE ---
     st.markdown("### 🧠 Informe de Desempeño Holos")
     if not df_f.empty:
-        total_avg = df_f['Usabilidad_V'].mean()
-        # Encontrar el mes con el valor más alto
+        total_avg = calcular_media_excel(df_f)
         stats_mes = df_f.groupby(col_mes)['Usabilidad_V'].mean()
         mejor_mes_num = stats_mes.idxmax()
         
@@ -142,7 +148,7 @@ if not df.empty:
         <div class='insight-card'>
             <strong>Análisis Ejecutivo:</strong> El nivel de usabilidad promedio bajo estos filtros es de <b>{total_avg:.1%}</b>.<br>
             <strong>Punto Máximo:</strong> El mes de mayor rendimiento detectado es <b>{meses_map.get(mejor_mes_num)}</b>.<br>
-            <strong>Insight:</strong> Se observa que el ciclo {max(anios_sel)} mantiene una estabilidad superior en comparación con periodos anteriores.
+            <strong>Nota metodológica:</strong> Este promedio refleja la media de desempeño por cuenta (coincidente con análisis internos).
         </div>
         """, unsafe_allow_html=True)
 
