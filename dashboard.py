@@ -2,108 +2,133 @@ import streamlit as st
 import pandas as pd
 import plotly.graph_objects as go
 
-# 1. Configuración de pantalla
-st.set_page_config(page_title="Holos | BI", layout="wide")
+# 1. CONFIGURACIÓN E ICONOS
+st.set_page_config(page_title="Holos BI", layout="wide")
 
-# Enlaces de datos
 LINK_1 = "https://docs.google.com/spreadsheets/d/e/2PACX-1vSWiXR7BLxwzX2wtD_uF59pvxtus8BL5iqgymKSh2-Llwt6smOJzR7ROUxICr57DA/pub?gid=1638907402&single=true&output=csv"
 LINK_2 = "https://docs.google.com/spreadsheets/d/e/2PACX-1vSWiXR7BLxwzX2wtD_uF59pvxtus8BL5iqgymKSh2-Llwt6smOJzR7ROUxICr57DA/pub?gid=1341962834&single=true&output=csv"
 
+# Colores Holos
+SKY, LEAF, SEA, CORAL, BLACK = "#D1E9F6", "#F1FB8C", "#A9C1F5", "#FF9F86", "#000000"
+
 @st.cache_data(ttl=60)
-def cargar_limpiar_data():
+def load_and_clean():
     try:
         df1 = pd.read_csv(LINK_1)
         df2 = pd.read_csv(LINK_2)
         df = pd.concat([df1, df2], ignore_index=True)
         df.columns = [str(c).strip() for c in df.columns]
         
-        # Identificar columnas
-        c_emp = next((c for c in df.columns if 'Empresa' in c), "Nombre de la Empresa")
+        # Mapeo robusto de columnas
+        c_emp = next((c for c in df.columns if 'Empresa' in c), df.columns[0])
         c_sem = next((c for c in df.columns if 'Semana' in c), "Semana")
         c_usa = next((c for c in df.columns if '%' in c or 'Usabilidad' in c), df.columns[7])
         c_mes = next((c for c in df.columns if 'Mes' in c and 'total' not in c.lower()), "Mes")
         c_ani = next((c for c in df.columns if 'Año' in c or 'Anio' in c), "Año")
 
-        # Limpiar números y Años (Elimina el 1899)
+        # Limpieza de años (Adiós 1899)
         df['Anio_V'] = pd.to_numeric(df[c_ani], errors='coerce').fillna(0).astype(int)
-        df = df[df['Anio_V'] > 2020] # <--- FILTRO CRÍTICO PARA ELIMINAR 1899
+        df = df[df['Anio_V'] > 2020].copy() 
         
         df['Mes_V'] = pd.to_numeric(df[c_mes], errors='coerce').fillna(0).astype(int)
         df['Empresa_V'] = df[c_emp].astype(str).str.strip()
         df['Semana_V'] = df[c_sem].astype(str).str.strip()
 
-        def parse_pct(val):
+        def to_pct(v):
             try:
-                s = str(val).replace('%', '').replace(',', '.').strip()
+                s = str(v).replace('%', '').replace(',', '.').strip()
                 n = float(s)
                 return n / 100.0 if n > 1.1 else n
             except: return 0.0
         
-        df['Val_V'] = df[c_usa].apply(parse_pct)
+        df['Valor_V'] = df[c_usa].apply(to_pct)
         return df
     except: return pd.DataFrame()
 
-df = cargar_limpiar_data()
+df = load_and_clean()
 
 if not df.empty:
+    # --- SIDEBAR ---
     with st.sidebar:
         st.header("Configuración")
-        modo = st.radio("Ver datos como:", ["Ejecutivo (Cierres)", "Operativo (Semanal)"])
-        empresa_sel = st.selectbox("Empresa", ["Todas las Empresas"] + sorted(df['Empresa_V'].unique()))
-        anios_disp = sorted(df['Anio_V'].unique(), reverse=True)
-        anios_sel = st.multiselect("Años", anios_disp, default=[2025, 2026])
+        modo = st.radio("Nivel de Detalle", ["Ejecutivo (Cierres)", "Operativo (Semanal)"])
         
-    # --- FILTRADO ---
-    df_f = df[df['Anio_V'].isin(anios_sel)].copy()
-    
+        st.markdown("---")
+        emp_list = sorted([e for e in df['Empresa_V'].unique() if e != 'nan'])
+        emp_sel = st.selectbox("Seleccionar Empresa", ["Todas las Empresas"] + emp_list)
+        
+        anios_sel = st.multiselect("Años", sorted(df['Anio_V'].unique(), reverse=True), default=[2025, 2026])
+        
+        meses_map = {1:'Ene', 2:'Feb', 3:'Mar', 4:'Abr', 5:'May', 6:'Jun', 7:'Jul', 8:'Ago', 9:'Set', 10:'Oct', 11:'Nov', 12:'Dic'}
+        meses_sel = st.multiselect("Filtrar Meses", sorted(meses_map.keys()), default=list(meses_map.keys()), format_func=lambda x: meses_map[x])
+
+    # --- FILTRADO LÓGICO ---
+    # 1. Filtro base de tiempo
+    df_f = df[(df['Anio_V'].isin(anios_sel)) & (df['Mes_V'].isin(meses_sel))].copy()
+
+    # 2. Filtro de Empresa
+    if emp_sel != "Todas las Empresas":
+        df_f = df_f[df_f['Empresa_V'] == emp_sel]
+
+    # 3. Filtro de Modo (Cierre vs Semanal)
     if modo == "Ejecutivo (Cierres)":
-        df_f = df_f[df_f['Semana_V'].str.contains('total|Total', na=False)]
+        df_vis = df_f[df_f['Semana_V'].str.contains('total|Total', na=False)]
     else:
-        df_f = df_f[~df_f['Semana_V'].str.contains('total|Total', na=False)]
+        df_vis = df_f[~df_f['Semana_V'].str.contains('total|Total', na=False)]
 
-    if empresa_sel != "Todas las Empresas":
-        df_f = df_f[df_f['Empresa_V'] == empresa_sel]
+    # --- CABECERA ---
+    st.title(f"📊 Reporte: {emp_sel}")
+    st.info(f"Visualizando datos en modo **{modo}** para los meses seleccionados.")
 
-    # --- TITULO Y GAUGES ---
-    st.title(f"📊 {empresa_sel}")
-    st.caption(f"Visualización: {modo}")
-
-    anios_activos = sorted(df_f['Anio_V'].unique())
-    if anios_activos:
-        cols = st.columns(len(anios_activos))
-        for i, a in enumerate(anios_activos):
-            df_anio = df_f[df_f['Anio_V'] == a]
-            # Si es Natura, toma Natura. Si es Todas, toma el promedio del Excel (32.72%)
-            valor = df_anio['Val_V'].mean()
+    # --- GAUGES (PROMEDIOS) ---
+    anios_act = sorted(df_vis['Anio_V'].unique())
+    col_map = {2024: LEAF, 2025: CORAL, 2026: SEA}
+    
+    if not df_vis.empty:
+        cols = st.columns(len(anios_act))
+        for i, a in enumerate(anios_act):
             with cols[i]:
-                st.metric(f"Promedio {a}", f"{valor:.2%}")
+                # Cálculo de la media según la selección
+                val = df_vis[df_vis['Anio_V'] == a]['Valor_V'].mean()
+                
+                fig = go.Figure(go.Indicator(
+                    mode="gauge+number", value=val*100,
+                    number={'suffix': "%", 'valueformat': '.2f'},
+                    title={'text': f"Media {a}"},
+                    gauge={'axis': {'range': [0, 100]}, 'bar': {'color': BLACK},
+                           'steps': [{'range': [0, 100], 'color': col_map.get(a, SKY)}]}
+                ))
+                fig.update_layout(height=250, margin=dict(l=20,r=20,t=40,b=20))
+                st.plotly_chart(fig, use_container_width=True, key=f"g_{a}_{modo}")
 
-    # --- GRÁFICA CORREGIDA (Sin telarañas) ---
-    st.subheader("📈 Curva de Engagement")
+    # --- GRÁFICA DE EVOLUCIÓN ---
+    st.subheader(f"📈 Curva de Engagement ({modo})")
     
-    # Agrupamos para que solo haya UNA línea por año
-    df_chart = df_f.groupby(['Anio_V', 'Mes_V', 'Semana_V'])['Val_V'].mean().reset_index()
+    # Agrupamos por Mes y Semana para que no haya líneas duplicadas
+    df_chart = df_vis.groupby(['Anio_V', 'Mes_V', 'Semana_V'])['Valor_V'].mean().reset_index()
     
-    fig = go.Figure()
-    colors = {2024: "#F1FB8C", 2025: "#FF9F86", 2026: "#A9C1F5"}
-    meses_n = {1:'Ene', 2:'Feb', 3:'Mar', 4:'Abr', 5:'May', 6:'Jun', 7:'Jul', 8:'Ago', 9:'Set', 10:'Oct', 11:'Nov', 12:'Dic'}
-
-    for a in anios_activos:
+    fig_l = go.Figure()
+    for a in anios_act:
         df_p = df_chart[df_chart['Anio_V'] == a].sort_values(['Mes_V', 'Semana_V'])
-        # Eje X limpio: Mes + Semana
-        x_labels = [f"{meses_n.get(m, m)} - {s}" for m, s in zip(df_p['Mes_V'], df_p['Semana_V'])]
         
-        fig.add_trace(go.Scatter(
-            x=x_labels, y=df_p['Val_V'], name=str(a),
-            mode='lines+markers', line=dict(width=3, color=colors.get(a, "#000"))
+        # Etiqueta de eje X: Si es mensual solo mes, si es semanal mes + semana
+        if modo == "Ejecutivo (Cierres)":
+            x_axis = [meses_map.get(m, m) for m in df_p['Mes_V']]
+        else:
+            x_axis = [f"{meses_map.get(m, m)}-{s[:3]}" for m, s in zip(df_p['Mes_V'], df_p['Semana_V'])]
+
+        fig_l.add_trace(go.Scatter(
+            x=x_axis, y=df_p['Valor_V'],
+            name=f"Año {a}", mode='lines+markers+text',
+            text=[f"{v:.1%}" for v in df_p['Valor_V']], textposition="top center",
+            line=dict(color=col_map.get(a, BLACK), width=3)
         ))
 
-    fig.update_layout(yaxis=dict(tickformat=".0%", range=[0, 1.1]), height=400, margin=dict(l=0,r=0,b=0,t=30))
-    st.plotly_chart(fig, use_container_width=True)
+    fig_l.update_layout(yaxis=dict(tickformat=".0%", range=[0, 1.1]), height=450)
+    st.plotly_chart(fig_l, use_container_width=True)
 
-    # --- TABLA DE VERDAD ---
-    with st.expander("🔍 Ver datos exactos de esta tabla"):
-        st.dataframe(df_f[['Empresa_V', 'Anio_V', 'Semana_V', 'Val_V']].sort_values(['Anio_V', 'Semana_V']))
-
+    # --- TABLA DE AUDITORÍA ---
+    with st.expander("🔍 Ver desglose de datos"):
+        st.dataframe(df_vis[['Empresa_V', 'Anio_V', 'Mes_V', 'Semana_V', 'Valor_V']])
 else:
-    st.error("No se detectan datos. Revisa la conexión con el Excel.")
+    st.error("Error al conectar con la base de datos.")
