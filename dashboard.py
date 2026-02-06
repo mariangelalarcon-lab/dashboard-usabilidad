@@ -20,12 +20,11 @@ def cargar_data():
         df = pd.concat([df1, df2], ignore_index=True)
         df.columns = [str(c).strip() for c in df.columns]
         
-        # Identificación de columnas
+        # Identificación de columnas (Busca los nombres exactos de tu Excel)
         c_usa = next((c for c in df.columns if 'Usabilidad' in c or 'Engagement' in c), None)
         c_emp = next((c for c in df.columns if 'Empresa' in c), df.columns[0])
         c_mes = next((c for c in df.columns if 'Mes' in c), None)
         c_ani = next((c for c in df.columns if 'Año' in c or 'Anio' in c), None)
-        # Columnas para cálculo real
         c_colab = next((c for c in df.columns if 'Colaboradores' in c), None)
         c_util = next((c for c in df.columns if 'utilizaron' in c), None)
 
@@ -59,25 +58,25 @@ if not df.empty:
         meses_map = {1:'Ene', 2:'Feb', 3:'Mar', 4:'Abr', 5:'May', 6:'Jun', 7:'Jul', 8:'Ago', 9:'Set', 10:'Oct', 11:'Nov', 12:'Dic'}
         meses_sel = st.multiselect("Meses", sorted(meses_map.keys()), default=sorted(meses_map.keys()), format_func=lambda x: meses_map[x])
 
-    st.title(f"Reporte: {empresa_sel}")
-
-    # --- LÓGICA DE CÁLCULO DINÁMICA ---
-    def obtener_metrica_final(df_contexto, es_todas):
-        if df_contexto.empty: return 0.0
-        if es_todas:
-            # Lógica Excel: Promedio de los porcentajes de cada fila
-            return df_contexto['Usabilidad_V'].mean()
-        else:
-            # Lógica Real x Empresa: Suma Usuarios / Suma Colaboradores
-            total_colab = df_contexto['Colab_V'].sum()
-            total_util = df_contexto['Util_V'].sum()
-            return total_util / total_colab if total_colab > 0 else df_contexto['Usabilidad_V'].mean()
+    st.title(f"Reporte de Usabilidad: {empresa_sel}")
 
     # Filtrado
     df_f = df[(df[col_ani].isin(anios_sel)) & (df[col_mes].isin(meses_sel))].copy()
     es_global = (empresa_sel == "Todas las Empresas")
     if not es_global:
         df_f = df_f[df_f[col_emp] == empresa_sel]
+
+    # --- LÓGICA DE CÁLCULO CORE ---
+    def obtener_valor_final(df_sub):
+        if df_sub.empty: return 0.0
+        if es_global:
+            # Coincide con el 32.72% de tu Excel (Promedio de la columna %)
+            return df_sub['Usabilidad_V'].mean()
+        else:
+            # Coincide con el 35.92% de Natura (Usuarios / Colaboradores)
+            u = df_sub['Util_V'].sum()
+            c = df_sub['Colab_V'].sum()
+            return u / c if c > 0 else df_sub['Usabilidad_V'].mean()
 
     # Gauges
     colores_config = {2023: WHITE, 2024: LEAF, 2025: CORAL, 2026: SEA}
@@ -87,26 +86,26 @@ if not df.empty:
         for i, anio in enumerate(anios_activos):
             with cols[i]:
                 df_anio = df_f[df_f[col_ani] == anio]
-                val = obtener_metrica_final(df_anio, es_global)
+                val = obtener_valor_final(df_anio)
                 fig = go.Figure(go.Indicator(
                     mode="gauge+number", value=val*100,
-                    number={'suffix': "%", 'valueformat': '.1f'},
-                    title={'text': f"Promedio {anio}"},
+                    number={'suffix': "%", 'valueformat': '.1f', 'font': {'size': 40}},
+                    title={'text': f"Promedio {anio}", 'font': {'size': 20}},
                     gauge={'axis': {'range': [0, 100]}, 'bar': {'color': BLACK},
                            'steps': [{'range': [0, 100], 'color': colores_config.get(anio, WHITE)}]}
                 ))
-                fig.update_layout(height=250, margin=dict(l=20, r=20, t=40, b=20))
+                fig.update_layout(height=280, margin=dict(l=20, r=20, t=50, b=20))
                 st.plotly_chart(fig, use_container_width=True)
 
-    # Gráfico de Evolución
-    st.subheader("Curva de Engagement")
+    # Curva de Engagement
+    st.subheader("📈 Curva de Engagement")
     if not df_f.empty:
-        # Agrupamos para la línea según la lógica seleccionada
+        # Agrupación por mes para la gráfica
         if es_global:
             df_linea = df_f.groupby([col_ani, col_mes])['Usabilidad_V'].mean().reset_index()
         else:
             df_linea = df_f.groupby([col_ani, col_mes]).apply(
-                lambda x: (x['Util_V'].sum() / x['Colab_V'].sum()) if x['Colab_V'].sum() > 0 else x['Usabilidad_V'].mean()
+                lambda x: x['Util_V'].sum() / x['Colab_V'].sum() if x['Colab_V'].sum() > 0 else 0
             ).reset_index(name='Usabilidad_V')
         
         df_linea = df_linea.sort_values([col_ani, col_mes])
@@ -118,10 +117,10 @@ if not df.empty:
                     x=[meses_map.get(m) for m in df_a[col_mes]], y=df_a['Usabilidad_V'],
                     name=str(anio), mode='lines+markers+text',
                     text=[f"{v:.1%}" for v in df_a['Usabilidad_V']], textposition="top center",
-                    line=dict(color=colores_config.get(anio, BLACK), width=3)
+                    line=dict(color=colores_config.get(anio, BLACK), width=4)
                 ))
-        fig_l.update_layout(yaxis=dict(tickformat=".0%", range=[0, 1.1]), height=400)
+        fig_l.update_layout(yaxis=dict(tickformat=".0%", range=[0, 1.1]), height=450, paper_bgcolor='rgba(0,0,0,0)', plot_bgcolor='rgba(0,0,0,0)')
         st.plotly_chart(fig_l, use_container_width=True)
 
-    with st.expander("Registros"):
-        st.dataframe(df_f)
+    with st.expander("Ver Datos de esta selección"):
+        st.dataframe(df_f[[col_emp, 'Colab_V', 'Util_V', 'Usabilidad_V']])
