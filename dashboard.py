@@ -2,110 +2,106 @@ import streamlit as st
 import pandas as pd
 import plotly.graph_objects as go
 
-# 1. Configuración de la página
-st.set_page_config(page_title="Dashboard Usabilidad Holos", layout="wide")
+# 1. Configuración Pro
+st.set_page_config(page_title="Holos | BI Dashboard", layout="wide")
 
 LINK_1 = "https://docs.google.com/spreadsheets/d/e/2PACX-1vSWiXR7BLxwzX2wtD_uF59pvxtus8BL5iqgymKSh2-Llwt6smOJzR7ROUxICr57DA/pub?gid=1638907402&single=true&output=csv"
 LINK_2 = "https://docs.google.com/spreadsheets/d/e/2PACX-1vSWiXR7BLxwzX2wtD_uF59pvxtus8BL5iqgymKSh2-Llwt6smOJzR7ROUxICr57DA/pub?gid=1341962834&single=true&output=csv"
 
 @st.cache_data(ttl=5)
-def cargar_datos_seguro():
+def cargar_limpiar_data():
     try:
         df = pd.concat([pd.read_csv(LINK_1), pd.read_csv(LINK_2)], ignore_index=True)
         df.columns = [str(c).strip() for c in df.columns]
         
-        # Procesamiento limpio de columnas
-        datos = pd.DataFrame()
-        datos['Empresa'] = df.iloc[:, 0].astype(str).str.strip()
-        datos['Semana_Txt'] = df.iloc[:, 1].astype(str).str.strip()
+        # Procesamiento ultra-seguro
+        res = pd.DataFrame()
+        res['Empresa'] = df.iloc[:, 0].astype(str).str.strip()
+        # Convertimos a string y minúsculas para que 'Total' y 'total' sean lo mismo
+        res['Semana_Raw'] = df.iloc[:, 1].astype(str).str.strip()
+        res['Semana_Lower'] = res['Semana_Raw'].str.lower()
         
-        # Limpieza de usabilidad
-        def to_perc(x):
+        def to_pct(x):
             try:
                 v = float(str(x).replace('%','').replace(',','.'))
                 return v/100 if v > 1.1 else v
             except: return 0.0
+            
+        res['Valor'] = df.iloc[:, 7].apply(to_pct)
+        res['Mes_N'] = pd.to_numeric(df.iloc[:, 9], errors='coerce').fillna(0).astype(int)
+        res['Anio_N'] = pd.to_numeric(df.iloc[:, 11], errors='coerce').fillna(0).astype(int)
         
-        datos['Valor'] = df.iloc[:, 7].apply(to_perc)
-        datos['Mes_N'] = pd.to_numeric(df.iloc[:, 9], errors='coerce').fillna(0).astype(int)
-        datos['Anio_N'] = pd.to_numeric(df.iloc[:, 11], errors='coerce').fillna(0).astype(int)
-        
-        return datos[datos['Anio_N'] >= 2025]
+        return res[res['Anio_N'] >= 2025]
     except Exception as e:
-        st.error(f"Error de conexión: {e}")
+        st.error(f"Error cargando datos: {e}")
         return pd.DataFrame()
 
-df_raw = cargar_datos_seguro()
+df_raw = cargar_limpiar_data()
 
 if not df_raw.empty:
-    # --- SIDEBAR ---
     with st.sidebar:
-        st.header("⚙️ Configuración")
-        interfaz = st.radio("Seleccionar Vista:", ["Resumen Ejecutivo (Mensual)", "Reporte Operativo (Semanal)"])
+        st.header("⚡ Navegación")
+        interfaz = st.radio("Tipo de Análisis:", ["Ejecutivo (Cierres Mensuales)", "Operativo (Avance Semanal)"])
         
-        empresa_list = sorted(df_raw['Empresa'].unique())
-        empresa_sel = st.selectbox("Empresa:", ["Todas las Empresas"] + empresa_list)
-        
+        empresa_sel = st.selectbox("Filtrar Empresa:", ["Todas las Empresas"] + sorted(df_raw['Empresa'].unique()))
         anios_sel = st.multiselect("Años:", [2026, 2025], default=[2026, 2025])
         
-        m_nombres = {1:'Ene', 2:'Feb', 3:'Mar', 4:'Abr', 5:'May', 6:'Jun', 7:'Jul', 8:'Ago', 9:'Sep', 10:'Oct', 11:'Nov', 12:'Dic'}
-        meses_sel = st.multiselect("Meses:", list(m_nombres.keys()), default=[1, 2], format_func=lambda x: m_nombres.get(x))
+        m_map = {1:'Ene', 2:'Feb', 3:'Mar', 4:'Abr', 5:'May', 6:'Jun', 7:'Jul', 8:'Ago', 9:'Sep', 10:'Oct', 11:'Nov', 12:'Dic'}
+        meses_sel = st.multiselect("Meses:", list(m_map.keys()), default=[1, 2], format_func=lambda x: m_map.get(x))
 
-    # Filtro base
-    df_f = df_raw[(df_raw['Anio_N'].isin(anios_sel)) & (df_raw['Mes_N'].isin(meses_sel))].copy()
+    # Filtro base por sidebar
+    mask = (df_raw['Anio_N'].isin(anios_sel)) & (df_raw['Mes_N'].isin(meses_sel))
     if empresa_sel != "Todas las Empresas":
-        df_f = df_f[df_f['Empresa'] == empresa_sel]
+        mask &= (df_raw['Empresa'] == empresa_sel)
+    
+    df_base = df_raw[mask].copy()
 
-    # --- LÓGICA DE INTERFACES ---
+    # --- LÓGICA DE INTERFACES SIN ERRORES ---
     if "Ejecutivo" in interfaz:
-        st.title("📊 Resumen Ejecutivo (Totales Mensuales)")
-        # Solo tomamos las filas que dicen "total"
-        df_plot = df_f[df_f['Semana_Txt'].str.lower().contains('total', na=False)].copy()
-        df_plot = df_plot.groupby(['Anio_N', 'Mes_N']).agg({'Valor':'mean'}).reset_index()
-        df_plot = df_plot.sort_values(['Anio_N', 'Mes_N'])
-        df_plot['Eje_X'] = df_plot['Mes_N'].map(m_nombres)
+        st.title("📊 Resumen Ejecutivo: Cierres Totales")
+        # Filtramos filas que contienen 'total'
+        df_plot = df_base[df_base['Semana_Lower'].str.contains('total', na=False)].copy()
+        label_x = 'Mes_N'
+        sort_order = ['Anio_N', 'Mes_N']
     else:
-        st.title("📉 Reporte Operativo (Progreso por Semanas)")
-        # Excluimos los totales
-        df_plot = df_f[~df_f['Semana_Txt'].str.lower().contains('total', na=False)].copy()
+        st.title("📉 Reporte Operativo: Progreso Semanal")
+        # Excluimos filas que contienen 'total'
+        df_plot = df_base[~df_base['Semana_Lower'].str.contains('total', na=False)].copy()
         
-        # Ordenar semanas: 1era, 2da, 3era, 4ta
-        rank_sem = {'1era semana':1, '2da semana':2, '3era semana':3, '4ta semana':4}
-        df_plot['sem_rank'] = df_plot['Semana_Txt'].str.lower().map(rank_sem).fillna(5)
-        
-        df_plot = df_plot.groupby(['Anio_N', 'Mes_N', 'Semana_Txt', 'sem_rank']).agg({'Valor':'mean'}).reset_index()
-        df_plot = df_plot.sort_values(['Anio_N', 'Mes_N', 'sem_rank'])
-        df_plot['Eje_X'] = df_plot.apply(lambda x: f"{m_nombres.get(x['Mes_N'])}-{x['Semana_Txt']}", axis=1)
+        # Mapeo de orden para evitar bajones de semana 4
+        rank_map = {'1era semana':1, '2da semana':2, '3era semana':3, '4ta semana':4}
+        df_plot['rank'] = df_plot['Semana_Lower'].map(rank_map).fillna(5)
+        label_x = 'Semana_Raw'
+        sort_order = ['Anio_N', 'Mes_N', 'rank']
 
-    # --- GRÁFICO ---
+    # --- RENDERIZADO DE GRÁFICA ---
     if not df_plot.empty:
+        # Agrupamos promediando por si hay múltiples empresas
+        df_fin = df_plot.groupby(['Anio_N', 'Mes_N', label_x] + (['rank'] if "Operativo" in interfaz else [])).agg({'Valor':'mean'}).reset_index()
+        df_fin = df_fin.sort_values(sort_order)
+        
+        # Etiqueta unificada para el eje X
+        df_fin['Etiqueta'] = df_fin.apply(lambda x: f"{m_map.get(x['Mes_N'])}-{x[label_x]}", axis=1)
+
         fig = go.Figure()
         colores = {2025: "#FF9F86", 2026: "#A9C1F5"}
 
         for anio in sorted(anios_sel):
-            df_anio = df_plot[df_plot['Anio_N'] == anio]
-            if not df_anio.empty:
+            d_anio = df_fin[df_fin['Anio_N'] == anio]
+            if not d_anio.empty:
                 fig.add_trace(go.Scatter(
-                    x=df_anio['Eje_X'], 
-                    y=df_anio['Valor'],
-                    name=f"Año {anio}",
-                    mode='lines+markers+text',
-                    text=[f"{v:.1%}" for v in df_anio['Valor']],
+                    x=d_anio['Etiqueta'], y=d_anio['Valor'],
+                    name=f"Año {anio}", mode='lines+markers+text',
+                    text=[f"{v:.1%}" for v in d_anio['Valor']],
                     textposition="top center",
                     line=dict(color=colores.get(anio, "#333"), width=4),
                     connectgaps=True
                 ))
 
-        fig.update_layout(
-            yaxis=dict(tickformat=".0%", range=[0, 1.1], gridcolor="#f0f0f0"),
-            xaxis=dict(gridcolor="#f0f0f0"),
-            plot_bgcolor="white",
-            height=500,
-            margin=dict(l=20, r=20, t=40, b=20)
-        )
+        fig.update_layout(yaxis=dict(tickformat=".0%", range=[0, 1.1]), hovermode="x unified", height=500)
         st.plotly_chart(fig, use_container_width=True)
     else:
-        st.warning("No hay datos que coincidan con los filtros seleccionados.")
+        st.info("No hay información suficiente para estos filtros. Verifica que las semanas estén marcadas como '1era semana' o 'Mes total'.")
 
 else:
-    st.info("Conectando con el servidor de datos...")
+    st.error("Esperando datos del Google Sheet...")
