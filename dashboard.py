@@ -2,136 +2,136 @@ import streamlit as st
 import pandas as pd
 import plotly.graph_objects as go
 
-# 1. Configuración de pantalla
-st.set_page_config(page_title="Holos | Business Intelligence", layout="wide")
+# 1. Configuración Pro
+st.set_page_config(page_title="Holos | BI Dashboard", layout="wide")
 
-LINK_1 = "https://docs.google.com/spreadsheets/d/e/2PACX-1vSWiXR7BLxwzX2wtD_uF59pvxtus8BL5iqgymKSh2-Llwt6smOJzR7ROUxICr57DA/pub?gid=1638907402&single=true&output=csv"
-LINK_2 = "https://docs.google.com/spreadsheets/d/e/2PACX-1vSWiXR7BLxwzX2wtD_uF59pvxtus8BL5iqgymKSh2-Llwt6smOJzR7ROUxICr57DA/pub?gid=1341962834&single=true&output=csv"
+# --- ENLACES CORREGIDOS (Verificar GID de cada hoja) ---
+LINK_HOJA_1 = "https://docs.google.com/spreadsheets/d/e/2PACX-1vSWiXR7BLxwzX2wtD_uF59pvxtus8BL5iqgymKSh2-Llwt6smOJzR7ROUxICr57DA/pub?gid=1638907402&single=true&output=csv"
+LINK_HOJA_2 = "https://docs.google.com/spreadsheets/d/e/2PACX-1vSWiXR7BLxwzX2wtD_uF59pvxtus8BL5iqgymKSh2-Llwt6smOJzR7ROUxICr57DA/pub?gid=1341962834&single=true&output=csv"
 
-# --- ESTÉTICA HOLOS ---
-SKY, LEAF, SEA, CORAL, BLACK, WHITE = "#D1E9F6", "#F1FB8C", "#A9C1F5", "#FF9F86", "#000000", "#FFFFFF"
+# --- PALETA HOLOS ---
+SKY, LEAF, SEA, CORAL, BLACK = "#D1E9F6", "#F1FB8C", "#A9C1F5", "#FF9F86", "#000000"
 
-st.markdown(f"""
-    <style>
-        .stApp {{ background-color: {SKY}; }}
-        h1, h2, h3 {{ font-family: 'Philosopher', sans-serif !important; color: {BLACK}; }}
-        .insight-card {{ background-color: {WHITE}; border-left: 6px solid {LEAF}; padding: 20px; border-radius: 10px; color: black; }}
-    </style>
-""", unsafe_allow_html=True)
-
-@st.cache_data(ttl=5) # Actualización casi instantánea
-def cargar_data():
+@st.cache_data(ttl=5)
+def cargar_unificado():
     try:
-        df1 = pd.read_csv(LINK_1)
-        df2 = pd.read_csv(LINK_2)
+        # Leer ambas pestañas
+        df1 = pd.read_csv(LINK_HOJA_1)
+        df2 = pd.read_csv(LINK_HOJA_2)
+        
+        # Unificar
         df = pd.concat([df1, df2], ignore_index=True)
         df.columns = [str(c).strip() for c in df.columns]
         
-        # Limpieza de Usabilidad (Columna G - Índice 7)
-        def limpiar_u(x):
+        # Mapeo por posición para evitar fallos si cambias un nombre en el Excel
+        res = pd.DataFrame()
+        res['Empresa'] = df.iloc[:, 0].astype(str).str.strip()
+        res['Semana'] = df.iloc[:, 1].astype(str).str.strip()
+        
+        def clean_num(x):
             try:
-                txt = str(x).replace('%', '').replace(',', '.').strip()
-                val = float(txt)
-                return val/100 if val > 1.1 else val
+                v = float(str(x).replace('%', '').replace(',', '.').strip())
+                return v/100 if v > 1.1 else v
             except: return None
 
-        df['Usabilidad_V'] = df.iloc[:, 7].apply(limpiar_u)
-        df['Mes_V'] = pd.to_numeric(df.iloc[:, 9], errors='coerce').fillna(0).astype(int)
-        df['Anio_V'] = pd.to_numeric(df.iloc[:, 11], errors='coerce').fillna(0).astype(int)
-        df['Semana_V'] = df.iloc[:, 1].astype(str).str.strip()
-        df['Empresa_V'] = df.iloc[:, 0].astype(str).str.strip()
+        res['Usabilidad'] = df.iloc[:, 7].apply(clean_num) # Columna G
+        res['Mes'] = pd.to_numeric(df.iloc[:, 9], errors='coerce').fillna(0).astype(int) # Columna J
+        res['Anio'] = pd.to_numeric(df.iloc[:, 11], errors='coerce').fillna(0).astype(int) # Columna L
         
-        # IMPORTANTE: No borramos nada, solo filtramos años válidos
-        return df[df['Anio_V'] >= 2025]
-    except:
+        # Filtro de seguridad
+        return res.dropna(subset=['Usabilidad'])
+    except Exception as e:
+        st.error(f"Error unificando hojas: {e}")
         return pd.DataFrame()
 
-df = cargar_data()
+df_total = cargar_unificado()
 
-if not df.empty:
+if not df_total.empty:
     with st.sidebar:
-        st.header("🎛️ Filtros")
-        empresa_sel = st.selectbox("Empresa", ["Todas las Empresas"] + sorted(df['Empresa_V'].unique().tolist()))
+        st.header("🎛️ Filtros de Control")
+        empresa_sel = st.selectbox("Seleccionar Empresa", ["Todas las Empresas"] + sorted(df_total['Empresa'].unique()))
         anios_sel = st.multiselect("Años", [2026, 2025], default=[2026, 2025])
-        meses_map = {1:'Ene', 2:'Feb', 3:'Mar', 4:'Abr', 5:'May', 6:'Jun'}
-        meses_sel = st.multiselect("Meses", [1, 2], default=[1, 2], format_func=lambda x: meses_map.get(x))
+        
+        meses_nombres = {1:'Ene', 2:'Feb', 3:'Mar', 4:'Abr', 5:'May', 6:'Jun'}
+        meses_sel = st.multiselect("Meses", [1, 2], default=[1, 2], format_func=lambda x: meses_nombres.get(x))
 
-    st.markdown(f"<h1>📊 Reporte de Usabilidad: {empresa_sel}</h1>", unsafe_allow_html=True)
+    # Título Estilo Holos
+    st.markdown(f"<h1 style='color:{BLACK};'>📊 Reporte de Avance: {empresa_sel}</h1>", unsafe_allow_html=True)
 
-    # Filtro de los datos
-    df_f = df[(df['Anio_V'].isin(anios_sel)) & (df['Mes_V'].isin(meses_sel))].copy()
+    # Filtrado final
+    mask = (df_total['Anio.isin(anios_sel)) & (df_total['Mes'].isin(meses_sel))
     if empresa_sel != "Todas las Empresas":
-        df_f = df_f[df_f['Empresa_V'] == empresa_sel]
+        mask &= (df_total['Empresa'] == empresa_sel)
+    df_f = df_total[mask].copy()
 
-    # --- GAUGES (PROMEDIO REAL) ---
-    anios_activos = sorted(df_f['Anio_V'].unique())
-    if anios_activos:
-        cols = st.columns(len(anios_activos))
-        for i, a in enumerate(anios_activos):
-            val = df_f[df_f['Anio_V'] == a]['Usabilidad_V'].mean()
-            with cols[i]:
-                fig = go.Figure(go.Indicator(
-                    mode="gauge+number", value=(val or 0)*100,
+    # --- GAUGES ---
+    if not df_f.empty:
+        g_cols = st.columns(len(anios_sel))
+        for i, a in enumerate(sorted(anios_sel)):
+            prom = df_f[df_f['Anio'] == a]['Usabilidad'].mean()
+            with g_cols[i]:
+                fig_g = go.Figure(go.Indicator(
+                    mode="gauge+number", value=(prom or 0)*100,
                     number={'suffix': "%", 'valueformat': '.1f'},
                     title={'text': f"Media {a}"},
                     gauge={'axis': {'range': [0, 100]}, 'bar': {'color': BLACK},
                            'steps': [{'range': [0, 100], 'color': SEA if a==2026 else CORAL}]}
                 ))
-                fig.update_layout(height=200, margin=dict(l=20, r=20, t=40, b=20), paper_bgcolor='rgba(0,0,0,0)')
-                st.plotly_chart(fig, use_container_width=True, key=f"g_{a}")
+                fig_g.update_layout(height=200, margin=dict(l=20, r=20, t=40, b=20), paper_bgcolor='rgba(0,0,0,0)')
+                st.plotly_chart(fig_g, use_container_width=True)
 
-    # --- CURVA DE AVANCE (ESTA ES LA CLAVE) ---
-    st.markdown("### 📈 Avance Mensual y Semanal")
+    # --- CURVA DE AVANCE CRONOLÓGICO ---
+    st.markdown("### 📈 Progreso Semanal y Cierres Mensuales")
     
-    # Creamos un ranking para ordenar: Semanas del 1 al 4, y luego el Total
-    def asignar_orden(row):
-        sem = str(row['Semana_V']).lower()
-        if '1era' in sem: return 1
-        if '2da' in sem: return 2
-        if '3era' in sem: return 3
-        if '4ta' in sem: return 4
-        return 5 # Para "Mes total" o cualquier otro dato del mes
+    # Sistema de Ranking para que el gráfico no "salte"
+    def rankear(s):
+        s = s.lower()
+        if '1era' in s: return 1
+        if '2da' in s: return 2
+        if '3era' in s: return 3
+        if '4ta' in s: return 4
+        return 5 # "Mes total"
 
-    df_f['Orden'] = df_f.apply(asignar_orden, axis=1)
+    df_f['Orden'] = df_f['Semana'].apply(rankear)
     
-    # Agrupamos para limpiar duplicados y asegurar que Febrero aparezca
-    df_plot = df_f.groupby(['Anio_V', 'Mes_V', 'Semana_V', 'Orden'])['Usabilidad_V'].mean().reset_index()
-    df_plot = df_plot.sort_values(['Anio_V', 'Mes_V', 'Orden'])
+    # Agrupamos por si hay varias empresas en "Todas las Empresas"
+    df_plot = df_f.groupby(['Anio', 'Mes', 'Semana', 'Orden'])['Usabilidad'].mean().reset_index()
+    df_plot = df_plot.sort_values(['Anio', 'Mes', 'Orden'])
 
     if not df_plot.empty:
-        fig_line = go.Figure()
+        fig_l = go.Figure()
         for a in sorted(anios_sel):
-            d = df_plot[df_plot['Anio_V'] == a]
+            d = df_plot[df_plot['Anio'] == a]
             if not d.empty:
-                # ETIQUETA DINÁMICA: Si es el orden 5, mostramos "TOTAL [MES]"
-                labels = [f"{meses_map.get(m)} - {s}" for m, s in zip(d['Mes_V'], d['Semana_V'])]
+                # Etiquetas del Eje X: Ene - 1era Semana... Ene - Mes Total
+                etiquetas = [f"{meses_nombres.get(m)} - {s}" for m, s in zip(d['Mes'], d['Semana'])]
                 
-                fig_line.add_trace(go.Scatter(
-                    x=labels, y=d['Usabilidad_V'],
+                fig_l.add_trace(go.Scatter(
+                    x=etiquetas, y=d['Usabilidad'],
                     name=f"Año {a}", mode='lines+markers+text',
-                    text=[f"{v:.1%}" if pd.notnull(v) else "" for v in d['Usabilidad_V']],
+                    text=[f"{v:.1%}" for v in d['Usabilidad']],
                     textposition="top center",
                     line=dict(width=4, color=SEA if a==2026 else CORAL),
                     connectgaps=True
                 ))
 
-        fig_line.update_layout(
-            yaxis=dict(tickformat=".0%", range=[0, 1.1]),
-            xaxis=dict(tickangle=-45),
-            margin=dict(l=0, r=0, t=30, b=0),
-            height=450, paper_bgcolor='rgba(0,0,0,0)', plot_bgcolor='rgba(0,0,0,0)'
+        fig_l.update_layout(
+            yaxis=dict(tickformat=".0%", range=[0, 1.1], gridcolor="#eee"),
+            xaxis=dict(tickangle=-45, showgrid=False),
+            height=450, paper_bgcolor='rgba(0,0,0,0)', plot_bgcolor='rgba(0,0,0,0)',
+            margin=dict(l=0, r=0, t=30, b=0)
         )
-        st.plotly_chart(fig_line, use_container_width=True)
+        st.plotly_chart(fig_l, use_container_width=True)
 
-    # --- INFORME ---
-    st.markdown(f"""
-    <div class='insight-card'>
-        <strong>Informe de Avance:</strong> El sistema ha detectado datos para <b>Enero</b> y <b>Febrero</b>.<br>
-        La curva muestra el progreso desde la semana 1 hasta el cierre mensual, conectando con el avance actual de 2026.
-    </div>
-    """, unsafe_allow_html=True)
+    # --- FOOTER DE IA ---
+    if not df_f.empty:
+        ult = df_f.sort_values(['Anio', 'Mes', 'Orden'], ascending=False).iloc[0]
+        st.markdown(f"""
+        <div style="background-color: white; border-left: 6px solid {LEAF}; padding: 20px; border-radius: 10px; color: black;">
+            <strong>Diagnóstico Holos:</strong> Se ha validado la conexión con ambas hojas del Excel.<br>
+            <strong>Avance detectado:</strong> El punto más reciente es <b>{ult['Semana']}</b> de <b>{meses_nombres.get(ult['Mes'])}</b> ({ult['Usabilidad']:.1%}).
+        </div>
+        """, unsafe_allow_html=True)
 
-    with st.expander("📂 Ver Data Cruda (Para verificar por qué no sale algo)"):
-        st.dataframe(df_f[['Empresa_V', 'Anio_V', 'Mes_V', 'Semana_V', 'Usabilidad_V']])
 else:
-    st.error("No hay conexión con el Excel. Asegúrate de que esté 'Publicado en la Web' como CSV.")
+    st.error("Error Crítico: No se pudo leer ninguna de las dos hojas. Revisa que ambas estén publicadas como CSV.")
