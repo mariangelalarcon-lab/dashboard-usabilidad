@@ -2,111 +2,117 @@ import streamlit as st
 import pandas as pd
 import plotly.graph_objects as go
 
-# 1. Configuración de Pantalla
-st.set_page_config(page_title="Holos | Business Intelligence", layout="wide")
+# 1. Configuración de Marca y Estilo
+st.set_page_config(page_title="Holos BI | Usability Dashboard", layout="wide")
 
 LINK_1 = "https://docs.google.com/spreadsheets/d/e/2PACX-1vSWiXR7BLxwzX2wtD_uF59pvxtus8BL5iqgymKSh2-Llwt6smOJzR7ROUxICr57DA/pub?gid=1638907402&single=true&output=csv"
 LINK_2 = "https://docs.google.com/spreadsheets/d/e/2PACX-1vSWiXR7BLxwzX2wtD_uF59pvxtus8BL5iqgymKSh2-Llwt6smOJzR7ROUxICr57DA/pub?gid=1341962834&single=true&output=csv"
 
+# Paleta de colores Pro
 SKY, LEAF, SEA, CORAL, BLACK = "#D1E9F6", "#F1FB8C", "#A9C1F5", "#FF9F86", "#000000"
 
 @st.cache_data(ttl=5)
-def cargar_data():
+def cargar_limpiar_data():
     try:
         df = pd.concat([pd.read_csv(LINK_1), pd.read_csv(LINK_2)], ignore_index=True)
         df.columns = [str(c).strip() for c in df.columns]
         
-        # Limpieza de datos por posición para evitar errores de nombres
-        df['Empresa_V'] = df.iloc[:, 0].astype(str).str.strip()
-        # NORMALIZACIÓN TOTAL: Quitamos espacios y pasamos a minúsculas
-        df['Semana_V'] = df.iloc[:, 1].astype(str).str.strip().str.lower()
-        df['Mes_V'] = pd.to_numeric(df.iloc[:, 9], errors='coerce').fillna(0).astype(int)
-        df['Anio_V'] = pd.to_numeric(df.iloc[:, 11], errors='coerce').fillna(0).astype(int)
+        # Mapeo posicional blindado
+        temp_df = pd.DataFrame()
+        temp_df['Empresa'] = df.iloc[:, 0].astype(str).str.strip()
+        temp_df['Semana_Raw'] = df.iloc[:, 1].astype(str).str.strip()
+        temp_df['Semana_Clean'] = temp_df['Semana_Raw'].str.lower()
+        temp_df['Usabilidad'] = pd.to_numeric(df.iloc[:, 7].astype(str).str.replace('%','').str.replace(',','.'), errors='coerce').fillna(0)
+        # Ajuste de escala: si es mayor a 1, asumimos que es porcentaje entero (ej. 34.5)
+        temp_df['Usabilidad'] = temp_df['Usabilidad'].apply(lambda x: x/100 if x > 1.1 else x)
         
-        def limpiar_pct(val):
-            try:
-                s = str(val).replace('%', '').replace(',', '.').strip()
-                n = float(s)
-                return n / 100.0 if n > 1.1 else n
-            except: return 0.0
+        temp_df['Mes_N'] = pd.to_numeric(df.iloc[:, 9], errors='coerce').fillna(0).astype(int)
+        temp_df['Anio_N'] = pd.to_numeric(df.iloc[:, 11], errors='coerce').fillna(0).astype(int)
         
-        df['Usabilidad_V'] = df.iloc[:, 7].apply(limpiar_pct)
-        # Filtramos solo data real (evitamos filas vacías del Excel)
-        df = df[(df['Anio_V'] >= 2025) & (df['Empresa_V'] != 'nan') & (df['Usabilidad_V'] > 0)]
-        return df
+        # Filtro de filas válidas
+        return temp_df[(temp_df['Anio_N'] >= 2025) & (temp_df['Empresa'] != 'nan')]
     except Exception as e:
         st.error(f"Error de conexión: {e}")
         return pd.DataFrame()
 
-df = cargar_data()
+df = cargar_limpiar_data()
 
 if not df.empty:
+    # --- INTERFAZ DE FILTROS ---
     with st.sidebar:
-        st.header("🎛️ Filtros Pro")
-        modo = st.radio("Ver datos como:", ["Resumen Mensual (Cierres)", "Detalle Semanal (Avance)"])
-        empresa_sel = st.selectbox("Seleccionar Empresa", ["Todas las Empresas"] + sorted(df['Empresa_V'].unique()))
-        anios_sel = st.multiselect("Años", [2026, 2025], default=[2026, 2025])
-        meses_sel = st.multiselect("Meses", [1, 2], default=[1, 2], 
-                                   format_func=lambda x: {1:'Ene', 2:'Feb'}.get(x))
+        st.header("⚡ Panel de Control")
+        tipo_reporte = st.radio("Selecciona Interfaz:", ["Resumen Ejecutivo (Cierres)", "Reporte Operativo (Semanal)"])
+        
+        st.divider()
+        empresa_list = sorted([e for e in df['Empresa'].unique() if e != 'nan'])
+        empresa_sel = st.selectbox("Empresa Target", ["Todas las Empresas"] + empresa_list)
+        
+        anios_sel = st.multiselect("Años", sorted(df['Anio_N'].unique(), reverse=True), default=[2026, 2025])
+        meses_sel = st.multiselect("Meses", [1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12], 
+                                   default=[1, 2], format_func=lambda x: {1:'Ene', 2:'Feb', 3:'Mar'}.get(x, x))
 
-    # Filtrado lógico
-    mask = (df['Anio_V'].isin(anios_sel)) & (df['Mes_V'].isin(meses_sel))
+    # Filtrado base
+    df_f = df[(df['Anio_N'].isin(anios_sel)) & (df['Mes_N'].isin(meses_sel))].copy()
     if empresa_sel != "Todas las Empresas":
-        mask &= (df['Empresa_V'] == empresa_sel)
-    df_f = df[mask].copy()
+        df_f = df_f[df_f['Empresa'] == empresa_sel]
 
-    # Separación por tipo de reporte
-    if "Resumen" in modo:
-        df_vis = df_f[df_f['Semana_V'].str.contains('total', na=False)]
+    # --- LÓGICA DE INTERFACES ---
+    if "Ejecutivo" in tipo_reporte:
+        st.title("📊 Resumen Ejecutivo: Cierres Mensuales")
+        df_plot = df_f[df_f['Semana_Clean'].str.contains('total', na=False)]
+        x_col = 'Mes_N'
+        sort_cols = ['Anio_N', 'Mes_N']
     else:
-        df_vis = df_f[~df_f['Semana_V'].str.contains('total', na=False)]
+        st.title("📉 Reporte Operativo: Progreso Semanal")
+        df_plot = df_f[~df_f['Semana_Clean'].str.contains('total', na=False)]
+        # Asignar orden a semanas
+        sem_order = {'1era semana':1, '2da semana':2, '3era semana':3, '4ta semana':4}
+        df_plot['sem_rank'] = df_plot['Semana_Clean'].map(sem_order).fillna(5)
+        x_col = 'Semana_Raw'
+        sort_cols = ['Anio_N', 'Mes_N', 'sem_rank']
 
-    st.title(f"📊 Dashboard: {empresa_sel}")
+    if not df_plot.empty:
+        # Agrupar para promediar si hay múltiples empresas seleccionadas
+        df_final = df_plot.groupby(['Anio_N', 'Mes_N', x_col] + ([ 'sem_rank'] if "Operativo" in tipo_reporte else [])).agg({'Usabilidad':'mean'}).reset_index()
+        df_final = df_final.sort_values(sort_cols)
 
-    if not df_vis.empty:
-        # MAPEO DE SEMANAS (Para que el orden sea perfecto y Febrero aparezca después de Enero)
-        sem_map = {'1era semana': 1, '2da semana': 2, '3era semana': 3, '4ta semana': 4}
-        df_vis['sem_idx'] = df_vis['Semana_V'].map(sem_map).fillna(0)
-        # Ordenamos cronológicamente: Año -> Mes -> Semana
-        df_vis = df_vis.sort_values(['Anio_V', 'Mes_V', 'sem_idx'])
+        # Crear etiquetas de eje X: "Ene-Total" o "Feb-1era Semana"
+        mes_map = {1:'Ene', 2:'Feb', 3:'Mar', 4:'Abr', 5:'May', 6:'Jun'}
+        df_final['Eje_X'] = df_final.apply(lambda r: f"{mes_map.get(r['Mes_N'], r['Mes_N'])}-{r[x_col]}", axis=1)
 
+        # --- GRÁFICA ---
         fig = go.Figure()
-        colores = {2025: CORAL, 2026: SEA}
-        mes_names = {1:'Ene', 2:'Feb'}
+        colors = {2025: CORAL, 2026: SEA}
 
-        for a in sorted(anios_sel, reverse=True):
-            d_plot = df_vis[df_vis['Anio_V'] == a]
-            # AGRUPACIÓN: Promediamos por semana para evitar el error de bajada de la semana 4
-            d_grp = d_plot.groupby(['Mes_V', 'Semana_V', 'sem_idx'])['Usabilidad_V'].mean().reset_index()
-            d_grp = d_grp.sort_values(['Mes_V', 'sem_idx'])
-            
-            x_labels = [f"{mes_names.get(m)}-{s.capitalize()}" for m, s in zip(d_grp['Mes_V'], d_grp['Semana_V'])]
-            
-            fig.add_trace(go.Scatter(
-                x=x_labels, y=d_grp['Usabilidad_V'],
-                name=f"Año {a}", mode='lines+markers+text',
-                line=dict(color=colores.get(a, BLACK), width=4 if a == 2026 else 2),
-                text=[f"{v:.1%}" for v in d_grp['Usabilidad_V']],
-                textposition="top center",
-                connectgaps=True # Esto permite que la línea siga si faltan semanas
-            ))
+        for anio in sorted(anios_sel):
+            curr_df = df_final[df_final['Anio_N'] == anio]
+            if not curr_df.empty:
+                fig.add_trace(go.Scatter(
+                    x=curr_df['Eje_X'], 
+                    y=curr_df['Usabilidad'],
+                    name=f"Año {anio}",
+                    mode='lines+markers+text',
+                    text=[f"{v:.1%}" for v in curr_df['Usabilidad']],
+                    textposition="top center",
+                    line=dict(color=colors.get(anio, BLACK), width=4 if anio==2026 else 2),
+                    connectgaps=True
+                ))
 
-        fig.update_layout(yaxis=dict(tickformat=".0%", range=[0, 1.1]), hovermode="x unified", height=500)
+        fig.update_layout(
+            yaxis=dict(tickformat=".0%", range=[0, 1.1], gridcolor="#eeeeee"),
+            xaxis=dict(gridcolor="#eeeeee"),
+            plot_bgcolor="white",
+            hovermode="x unified",
+            height=500
+        )
         st.plotly_chart(fig, use_container_width=True)
 
-        # --- ANÁLISIS CON IA (INTEGRADO) ---
-        st.markdown("### 🧠 Informe de Desempeño Holos")
-        try:
-            val_ene = df_vis[(df_vis['Anio_V']==2026) & (df_vis['Mes_V']==1)]['Usabilidad_V'].iloc[-1]
-            val_feb = df_vis[(df_vis['Anio_V']==2026) & (df_vis['Mes_V']==2)]['Usabilidad_V'].iloc[-1] if 2 in meses_sel else 0
-            
-            status = "subiendo 📈" if val_feb > val_ene else "en observación 📉"
-            st.success(f"**Análisis:** La semana 1 de Febrero muestra un **{val_feb:.1%}**. Comparado con el cierre de Enero ({val_ene:.1%}), el engagement está {status}.")
-        except:
-            st.info("Llenando datos de Febrero... La comparativa aparecerá al completar la primera semana.")
-
+        # --- SECCIÓN DE AUDITORÍA (Oculta por defecto) ---
+        with st.expander("🔍 Verificador de Registros (Evita el KeyError)"):
+            st.write(f"Mostrando {len(df_plot)} filas encontradas:")
+            st.dataframe(df_plot[['Empresa', 'Anio_N', 'Mes_N', 'Semana_Raw', 'Usabilidad']])
     else:
-        st.warning("No hay datos. Asegúrate de que en el Excel las columnas J y L tengan los números 1, 2 y 2026.")
+        st.info("No se encontraron datos para los filtros seleccionados. Verifica que el Mes y Año coincidan en el Excel.")
 
-    with st.expander("🔍 Auditoría de Datos (Verifica aquí si Febrero aparece)"):
-        st.dataframe(df_vis[['Empresa_V', 'Anio_V', 'Mes_V', 'Semana_V', 'Usabilidad_V']].sort_values(['Anio_V', 'Mes_V', 'sem_idx']))
+else:
+    st.error("No se pudo conectar con el Google Sheet. Verifica los enlaces de publicación CSV.")
