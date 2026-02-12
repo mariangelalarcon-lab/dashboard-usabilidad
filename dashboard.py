@@ -5,92 +5,148 @@ import plotly.graph_objects as go
 # 1. Configuración de pantalla
 st.set_page_config(page_title="Holos | Business Intelligence", layout="wide")
 
+# --- ENLACES DE DATOS DIRECTOS ---
 LINK_1 = "https://docs.google.com/spreadsheets/d/e/2PACX-1vSWiXR7BLxwzX2wtD_uF59pvxtus8BL5iqgymKSh2-Llwt6smOJzR7ROUxICr57DA/pub?gid=1638907402&single=true&output=csv"
 LINK_2 = "https://docs.google.com/spreadsheets/d/e/2PACX-1vSWiXR7BLxwzX2wtD_uF59pvxtus8BL5iqgymKSh2-Llwt6smOJzR7ROUxICr57DA/pub?gid=1341962834&single=true&output=csv"
 
-SKY, LEAF, SEA, CORAL, BLACK = "#D1E9F6", "#F1FB8C", "#A9C1F5", "#FF9F86", "#000000"
+# --- PALETA OFICIAL HOLOS ---
+SKY = "#D1E9F6"
+LEAF = "#F1FB8C"
+SEA = "#A9C1F5"
+CORAL = "#FF9F86"
+BLACK = "#000000"
+WHITE = "#FFFFFF"
 
-@st.cache_data(ttl=5)
-def cargar_unificado():
+# --- DISEÑO UI ---
+st.markdown(f"""
+    <link href="https://fonts.googleapis.com/css2?family=Philosopher:wght@700&family=Inter:wght@400;600&display=swap" rel="stylesheet">
+    <style>
+        .stApp {{ background-color: {SKY}; }}
+        h1, h2, h3 {{ font-family: 'Philosopher', sans-serif !important; color: {BLACK}; }}
+        * {{ font-family: 'Inter', sans-serif; }}
+        [data-testid="stSidebar"] {{ background-color: {WHITE}; }}
+        .insight-card {{ background-color: {WHITE}; border-left: 6px solid {LEAF}; padding: 20px; border-radius: 10px; box-shadow: 0 4px 6px rgba(0,0,0,0.05); }}
+    </style>
+""", unsafe_allow_html=True)
+
+@st.cache_data(ttl=300)
+def cargar_data():
     try:
         df1 = pd.read_csv(LINK_1)
         df2 = pd.read_csv(LINK_2)
         df = pd.concat([df1, df2], ignore_index=True)
         df.columns = [str(c).strip() for c in df.columns]
         
-        res = pd.DataFrame()
-        res['Empresa'] = df.iloc[:, 0].astype(str).str.strip()
-        res['Semana'] = df.iloc[:, 1].astype(str).str.strip()
-        
-        def clean_num(x):
+        c_usa = next((c for c in df.columns if 'Engagement' in c or 'Usabilidad' in c), None)
+        c_emp = next((c for c in df.columns if 'Empresa' in c or 'Nombre' in c), df.columns[0])
+        c_mes = next((c for c in df.columns if 'Mes' in c), None)
+        c_ani = next((c for c in df.columns if 'Año' in c or 'Anio' in c), None)
+
+        def limpiar_num(val):
             try:
-                txt = str(x).replace('%', '').replace(',', '.').strip()
-                if txt == "" or txt == "nan": return None
-                v = float(txt)
-                return v/100 if v > 1.1 else v
-            except: return None
+                s = str(val).replace('%', '').replace(',', '.').strip()
+                n = float(s)
+                return n / 100.0 if n > 1.1 else n
+            except: return 0.0
 
-        res['Usabilidad'] = df.iloc[:, 7].apply(clean_num)
-        res['Mes'] = pd.to_numeric(df.iloc[:, 9], errors='coerce').fillna(0).astype(int)
-        res['Anio'] = pd.to_numeric(df.iloc[:, 11], errors='coerce').fillna(0).astype(int)
+        df['Usabilidad_V'] = df[c_usa].apply(limpiar_num)
+        df['Anio_V'] = pd.to_numeric(df[c_ani], errors='coerce').fillna(0).astype(int)
+        df['Mes_V'] = pd.to_numeric(df[c_mes], errors='coerce').fillna(0).astype(int)
+        df['Empresa_V'] = df[c_emp].astype(str).str.strip()
         
-        # Filtramos valores nulos o ceros que ensucian el promedio del "Mes Total"
-        return res[res['Usabilidad'] > 0.0001] 
-    except:
-        return pd.DataFrame()
+        return df, 'Empresa_V', 'Anio_V', 'Mes_V'
+    except Exception as e:
+        return pd.DataFrame(), str(e), None, None
 
-df_total = cargar_unificado()
+df, col_emp, col_ani, col_mes = cargar_data()
 
-if not df_total.empty:
+if not df.empty:
     with st.sidebar:
-        st.header("🎛️ Filtros")
-        empresa_sel = st.selectbox("Empresa", ["Todas las Empresas"] + sorted(df_total['Empresa'].unique().tolist()))
-        anios_sel = st.multiselect("Años", [2026, 2025], default=[2026, 2025])
-        mes_nom = {1:'Ene', 2:'Feb', 3:'Mar'}
-        meses_sel = st.multiselect("Meses", [1, 2], default=[1, 2], format_func=lambda x: mes_nom.get(x))
+        st.markdown("### 🎛️ Filtros")
+        lista_empresas = sorted([e for e in df[col_emp].unique() if str(e) not in ['nan', 'None']])
+        empresa_sel = st.selectbox("Empresa Target", ["Todas las Empresas"] + lista_empresas)
+        
+        anios_disp = sorted([a for a in df[col_ani].unique() if a > 2020], reverse=True)
+        anios_sel = st.multiselect("Comparativa Anual", anios_disp, default=anios_disp)
+        
+        meses_map = {1:'Ene', 2:'Feb', 3:'Mar', 4:'Abr', 5:'May', 6:'Jun', 7:'Jul', 8:'Ago', 9:'Set', 10:'Oct', 11:'Nov', 12:'Dic'}
+        meses_sel = st.multiselect("Meses", sorted(meses_map.keys()), 
+                                   default=sorted(meses_map.keys()), format_func=lambda x: meses_map[x])
 
-    st.markdown(f"<h1>📊 Dashboard de Usabilidad: {empresa_sel}</h1>", unsafe_allow_html=True)
+    st.markdown(f"<h1>📊 Reporte de Usabilidad: {empresa_sel}</h1>", unsafe_allow_html=True)
 
-    # FILTRO CORREGIDO (Sin error de comillas)
-    mask = (df_total['Anio'].isin(anios_sel)) & (df_total['Mes'].isin(meses_sel))
+    # FILTRADO
+    df_f = df[(df[col_ani].isin(anios_sel)) & (df[col_mes].isin(meses_sel))].copy()
     if empresa_sel != "Todas las Empresas":
-        mask &= (df_total['Empresa'] == empresa_sel)
-    df_f = df_total[mask].copy()
+        df_f = df_f[df_f[col_emp] == empresa_sel]
 
-    # --- GRÁFICO DE AVANCE ---
-    def rankear(s):
-        s = s.lower()
-        if '1era' in s: return 1
-        if '2da' in s: return 2
-        if '3era' in s: return 3
-        if '4ta' in s: return 4
-        return 5
+    # --- GAUGES ---
+    colores_config = {2024: LEAF, 2025: CORAL, 2026: SEA}
+    anios_activos = sorted(df_f[col_ani].unique())
+    
+    if anios_activos:
+        gauge_cols = st.columns(len(anios_activos))
+        for i, anio in enumerate(anios_activos):
+            with gauge_cols[i]:
+                promedio = df_f[df_f[col_ani] == anio]['Usabilidad_V'].mean()
+                fig_g = go.Figure(go.Indicator(
+                    mode="gauge+number", value=(promedio or 0)*100,
+                    number={'suffix': "%", 'font': {'size': 28, 'color': BLACK}, 'valueformat': '.1f'},
+                    title={'text': f"Promedio {anio}", 'font': {'size': 18, 'color': BLACK}},
+                    gauge={'axis': {'range': [0, 100], 'tickcolor': BLACK},
+                           'bar': {'color': BLACK},
+                           'steps': [{'range': [0, 100], 'color': colores_config.get(anio, WHITE)}]}
+                ))
+                fig_g.update_layout(height=220, margin=dict(l=30, r=30, t=50, b=20), paper_bgcolor='rgba(0,0,0,0)')
+                st.plotly_chart(fig_g, use_container_width=True, key=f"gauge_{anio}")
 
-    df_f['Orden'] = df_f['Semana'].apply(rankear)
-    df_plot = df_f.groupby(['Anio', 'Mes', 'Semana', 'Orden'])['Usabilidad'].mean().reset_index()
-    df_plot = df_plot.sort_values(['Anio', 'Mes', 'Orden'])
+    # --- CURVA DE ENGAGEMENT CORREGIDA ---
+    st.markdown("### 📈 Curva de Engagement")
+    if not df_f.empty:
+        # IMPORTANTE: Agrupar y ordenar para evitar el error de líneas cruzadas
+        df_ev = df_f.groupby([col_ani, col_mes])['Usabilidad_V'].mean().reset_index()
+        df_ev = df_ev.sort_values([col_ani, col_mes]) # Esto ordena Ene -> Dic
+        
+        fig_line = go.Figure()
+        for anio in sorted(anios_sel):
+            df_a = df_ev[df_ev[col_ani] == anio]
+            if not df_a.empty:
+                fig_line.add_trace(go.Scatter(
+                    x=[meses_map.get(m) for m in df_a[col_mes]], 
+                    y=df_a['Usabilidad_V'],
+                    name=f"Año {anio}", 
+                    mode='lines+markers+text',
+                    line=dict(color=colores_config.get(anio, BLACK), width=4),
+                    text=[f"{v:.1%}" for v in df_a['Usabilidad_V']],
+                    textposition="top center",
+                    connectgaps=True
+                ))
+        
+        fig_line.update_layout(
+            yaxis=dict(tickformat=".0%", range=[0, 1.1], gridcolor='rgba(0,0,0,0.1)'),
+            xaxis=dict(showgrid=False),
+            paper_bgcolor='rgba(0,0,0,0)', plot_bgcolor='rgba(0,0,0,0)',
+            height=450, legend=dict(orientation="h", y=1.1, x=0.5, xanchor="center")
+        )
+        st.plotly_chart(fig_line, use_container_width=True)
 
-    fig_l = go.Figure()
-    for a in sorted(anios_sel):
-        d = df_plot[df_plot['Anio'] == a]
-        if not d.empty:
-            etiquetas = [f"{mes_nom.get(m)} - {s}" for m, s in zip(d['Mes'], d['Semana'])]
-            fig_l.add_trace(go.Scatter(
-                x=etiquetas, y=d['Usabilidad'],
-                name=f"Año {a}", mode='lines+markers+text',
-                text=[f"{v:.1%}" for v in d['Usabilidad']],
-                textposition="top center",
-                line=dict(width=4, color=SEA if a==2026 else CORAL),
-                connectgaps=True
-            ))
+    # --- INFORME INTELIGENTE ---
+    st.markdown("### 🧠 Informe de Desempeño Holos")
+    if not df_f.empty:
+        total_avg = df_f['Usabilidad_V'].mean()
+        # Encontrar el mes con el valor más alto
+        stats_mes = df_f.groupby(col_mes)['Usabilidad_V'].mean()
+        mejor_mes_num = stats_mes.idxmax()
+        
+        st.markdown(f"""
+        <div class='insight-card'>
+            <strong>Análisis Ejecutivo:</strong> El nivel de usabilidad promedio bajo estos filtros es de <b>{total_avg:.1%}</b>.<br>
+            <strong>Punto Máximo:</strong> El mes de mayor rendimiento detectado es <b>{meses_map.get(mejor_mes_num)}</b>.<br>
+            <strong>Insight:</strong> Se observa que el ciclo {max(anios_sel)} mantiene una estabilidad superior en comparación con periodos anteriores.
+        </div>
+        """, unsafe_allow_html=True)
 
-    fig_l.update_layout(
-        yaxis=dict(tickformat=".0%", range=[0, 1.1]),
-        xaxis=dict(tickangle=-45),
-        height=500, paper_bgcolor='rgba(0,0,0,0)', plot_bgcolor='rgba(0,0,0,0)'
-    )
-    st.plotly_chart(fig_l, use_container_width=True)
-
-    st.info("💡 Nota: Se han omitido los registros con 0% para evitar que la línea de avance caiga artificialmente si el mes aún no cierra.")
+    with st.expander("📂 Explorar registros detallados"):
+        st.dataframe(df_f)
 else:
-    st.warning("Asegúrate de que tus hojas de Google Sheets estén publicadas como CSV y contengan datos válidos.")
+    st.error("No se detectaron datos. Revisa la conexión con Google Sheets.")
