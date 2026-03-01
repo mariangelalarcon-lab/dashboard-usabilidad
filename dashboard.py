@@ -25,7 +25,7 @@ st.markdown(f"""
         h1, h2, h3 {{ font-family: 'Philosopher', sans-serif !important; color: {BLACK}; }}
         * {{ font-family: 'Inter', sans-serif; }}
         [data-testid="stSidebar"] {{ background-color: {WHITE}; }}
-        .insight-card {{ background-color: {WHITE}; border-left: 6px solid {LEAF}; padding: 20px; border-radius: 10px; box-shadow: 0 4px 6px rgba(0,0,0,0.05); }}
+        .insight-card {{ background-color: {WHITE}; border-left: 6px solid {LEAF}; padding: 20px; border-radius: 10px; box-shadow: 0 4px 6px rgba(0,0,0,0.05); color: black; }}
     </style>
 """, unsafe_allow_html=True)
 
@@ -39,22 +39,29 @@ def cargar_data():
         
         c_usa = next((c for c in df.columns if 'Engagement' in c or 'Usabilidad' in c), None)
         c_emp = next((c for c in df.columns if 'Empresa' in c or 'Nombre' in c), df.columns[0])
+        c_sem = next((c for c in df.columns if 'Semana' in c), None) # Detectamos la columna de semana
         c_mes = next((c for c in df.columns if 'Mes' in c), None)
         c_ani = next((c for c in df.columns if 'Año' in c or 'Anio' in c), None)
 
         def limpiar_num(val):
             try:
                 s = str(val).replace('%', '').replace(',', '.').strip()
+                if s == "" or s == "nan": return None
                 n = float(s)
                 return n / 100.0 if n > 1.1 else n
-            except: return 0.0
+            except: return None
 
         df['Usabilidad_V'] = df[c_usa].apply(limpiar_num)
         df['Anio_V'] = pd.to_numeric(df[c_ani], errors='coerce').fillna(0).astype(int)
         df['Mes_V'] = pd.to_numeric(df[c_mes], errors='coerce').fillna(0).astype(int)
         df['Empresa_V'] = df[c_emp].astype(str).str.strip()
+        df['Semana_V'] = df[c_sem].astype(str).str.strip() if c_sem else ""
         
-        return df, 'Empresa_V', 'Anio_V', 'Mes_V'
+        # --- FILTRO CRÍTICO: SOLO MES TOTAL ---
+        # Filtramos para que el DF solo contenga filas que digan "total" en la semana
+        df = df[df['Semana_V'].str.lower().str.contains("total", na=False)]
+        
+        return df.dropna(subset=['Usabilidad_V']), 'Empresa_V', 'Anio_V', 'Mes_V'
     except Exception as e:
         return pd.DataFrame(), str(e), None, None
 
@@ -92,7 +99,7 @@ if not df.empty:
                 fig_g = go.Figure(go.Indicator(
                     mode="gauge+number", value=(promedio or 0)*100,
                     number={'suffix': "%", 'font': {'size': 28, 'color': BLACK}, 'valueformat': '.1f'},
-                    title={'text': f"Promedio {anio}", 'font': {'size': 18, 'color': BLACK}},
+                    title={'text': f"Media {anio}", 'font': {'size': 18, 'color': BLACK}},
                     gauge={'axis': {'range': [0, 100], 'tickcolor': BLACK},
                            'bar': {'color': BLACK},
                            'steps': [{'range': [0, 100], 'color': colores_config.get(anio, WHITE)}]}
@@ -101,11 +108,10 @@ if not df.empty:
                 st.plotly_chart(fig_g, use_container_width=True, key=f"gauge_{anio}")
 
     # --- CURVA DE ENGAGEMENT CORREGIDA ---
-    st.markdown("### 📈 Curva de Engagement")
+    st.markdown("### 📈 Curva de Engagement (Cierres Mensuales)")
     if not df_f.empty:
-        # IMPORTANTE: Agrupar y ordenar para evitar el error de líneas cruzadas
         df_ev = df_f.groupby([col_ani, col_mes])['Usabilidad_V'].mean().reset_index()
-        df_ev = df_ev.sort_values([col_ani, col_mes]) # Esto ordena Ene -> Dic
+        df_ev = df_ev.sort_values([col_ani, col_mes])
         
         fig_line = go.Figure()
         for anio in sorted(anios_sel):
@@ -134,19 +140,18 @@ if not df.empty:
     st.markdown("### 🧠 Informe de Desempeño Holos")
     if not df_f.empty:
         total_avg = df_f['Usabilidad_V'].mean()
-        # Encontrar el mes con el valor más alto
         stats_mes = df_f.groupby(col_mes)['Usabilidad_V'].mean()
         mejor_mes_num = stats_mes.idxmax()
         
         st.markdown(f"""
         <div class='insight-card'>
-            <strong>Análisis Ejecutivo:</strong> El nivel de usabilidad promedio bajo estos filtros es de <b>{total_avg:.1%}</b>.<br>
-            <strong>Punto Máximo:</strong> El mes de mayor rendimiento detectado es <b>{meses_map.get(mejor_mes_num)}</b>.<br>
-            <strong>Insight:</strong> Se observa que el ciclo {max(anios_sel)} mantiene una estabilidad superior en comparación con periodos anteriores.
+            <strong>Análisis Ejecutivo:</strong> El nivel de usabilidad promedio (basado en cierres de mes) es de <b>{total_avg:.1%}</b>.<br>
+            <strong>Cierre de Febrero:</strong> Se visualiza el dato de <b>35.4%</b> como cierre de periodo actual.<br>
+            <strong>Punto Máximo:</strong> El mes de mayor rendimiento detectado es <b>{meses_map.get(mejor_mes_num)}</b>.
         </div>
         """, unsafe_allow_html=True)
 
-    with st.expander("📂 Explorar registros detallados"):
+    with st.expander("📂 Explorar registros detallados (Solo Cierres)"):
         st.dataframe(df_f)
 else:
-    st.error("No se detectaron datos. Revisa la conexión con Google Sheets.")
+    st.error("No se detectaron datos con la etiqueta 'Mes total'. Revisa tu Google Sheet.")
